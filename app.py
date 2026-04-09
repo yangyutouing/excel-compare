@@ -374,35 +374,73 @@ def show_home():
     # 工具列表
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
-        <div class="potato-card-header">🛠️ 可用工具</div>
+        <div class="potato-card-header">🛠️ 可用工具（点击进入使用）</div>
     </div>
     """, unsafe_allow_html=True)
     
+    # 工具1：数据比对回填
     col1, col2 = st.columns(2, gap="large")
     
     with col1:
         st.markdown("""
-        <div class="tool-card">
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
             <div class="tool-icon">🔄</div>
             <div class="tool-title">数据比对回填</div>
             <div class="tool-desc">将两个Excel文件按关键字段进行比对和回填</div>
-            <p style="margin-top: 0.8rem; color: #8B4513; font-size: 0.85rem;">
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
                 📁 上传主表和数据源 → 选择匹配字段 → 自动回填
             </p>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_compare", use_container_width=True):
+            st.session_state.page = "🔄 数据比对回填"
+            st.rerun()
     
     with col2:
         st.markdown("""
-        <div class="tool-card">
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
             <div class="tool-icon">✂️</div>
             <div class="tool-title">数据拆分器</div>
             <div class="tool-desc">将大型Excel文件按指定条数拆分成多个文件</div>
-            <p style="margin-top: 0.8rem; color: #8B4513; font-size: 0.85rem;">
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
                 📁 上传Excel文件 → 设置拆分条数 → 一键拆分打包
             </p>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_split", use_container_width=True):
+            st.session_state.page = "✂️ 数据拆分器"
+            st.rerun()
+    
+    # 工具2：数据聚合器
+    col3, col4 = st.columns(2, gap="large")
+    
+    with col3:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🔗</div>
+            <div class="tool-title">数据聚合器</div>
+            <div class="tool-desc">将相同数据的行合并，让内容聚合更高效</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                📁 上传Excel文件 → 选择聚合字段 → 一键合并
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_aggregate", use_container_width=True):
+            st.session_state.page = "🔗 数据聚合器"
+            st.rerun()
+    
+    with col4:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
+            <div class="tool-icon">🚧</div>
+            <div class="tool-title">更多工具...</div>
+            <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                🥔 土豆正在努力种植新的工具...
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
     
     # 功能特点
     st.markdown("""
@@ -440,7 +478,7 @@ def show_home():
     
     st.markdown("""
     <div class="footer">
-        <p>💡 选择左侧的工具开始使用吧！</p>
+        <p>💡 选择上方工具开始使用吧！</p>
         <p>Made with 🥔 by 洋芋头</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1648,12 +1686,29 @@ def main():
         
         st.divider()
         
+        # 工具选项列表
+        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器"]
+        
+        # 初始化或读取当前页面
+        if 'page' not in st.session_state:
+            st.session_state.page = options[0]
+        
+        # 根据 session_state 设置默认选中
+        try:
+            default_index = options.index(st.session_state.page)
+        except ValueError:
+            default_index = 0
+        
         page = st.radio(
             "🧭 选择工具",
-            options=["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器"],
-            index=0,
-            label_visibility="collapsed"
+            options=options,
+            index=default_index,
+            label_visibility="collapsed",
+            key="nav_radio"
         )
+        
+        # 更新 session_state
+        st.session_state.page = page
         
         st.divider()
         

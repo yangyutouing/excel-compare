@@ -2,7 +2,7 @@
 """
 🥔 土豆数据工具箱 - 让数据工作变得像挖土豆一样简单有趣
 一个可爱风格的Streamlit数据处理工具集
-包含：数据比对回填、数据拆分器等功能
+包含：数据比对回填、数据拆分器、数据聚合器等功能
 """
 
 import streamlit as st
@@ -1176,6 +1176,463 @@ def show_split_tool():
 
 
 # ============================================
+# 页面4：数据聚合器
+# ============================================
+def show_aggregate_tool():
+    """显示数据聚合器工具"""
+    st.markdown("""
+    <div class="potato-header">
+        <h1 class="potato-title">🔗 数据聚合器</h1>
+        <p class="potato-subtitle">✨ 将相同数据的行合并，让内容聚合更高效 ✨</p>
+    </div>
+    
+    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 初始化session state
+    if 'agg_df' not in st.session_state:
+        st.session_state.agg_df = None
+    if 'agg_result' not in st.session_state:
+        st.session_state.agg_result = None
+    
+    # 使用说明
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0;">
+            <span style="font-size: 2.5rem;">🥔</span>
+            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="potato-card" style="margin-bottom: 0.8rem;">
+            <div class="potato-card-header">🌱 操作步骤</div>
+            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>上传 <b>Excel文件</b> 📁</li>
+                <li>选择 <b>聚合字段</b> 🔑</li>
+                <li>选择 <b>待合并字段</b> 📝</li>
+                <li>设置 <b>分隔符</b> ✂️</li>
+                <li>点击 <b>开始聚合</b> 🚀</li>
+                <li>下载 <b>结果文件</b> 📥</li>
+            </ol>
+        </div>
+        
+        <div class="potato-card">
+            <div class="potato-card-header">💡 示例说明</div>
+            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li><b>聚合字段：</b>决定哪些行需要合并</li>
+                <li><b>待合并字段：</b>内容会被连接起来</li>
+                <li><b>分隔符：</b>连接时的分隔符号</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem;">
+            <span style="font-size: 2rem;">🥔 🌿</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("🥔 数据聚合器")
+    
+    # 文件上传区域
+    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel文件</div></div>', unsafe_allow_html=True)
+    
+    file = st.file_uploader(
+        "点击上传或拖拽Excel文件到此处",
+        type=['xlsx', 'xls'],
+        help="🥔 上传要聚合的Excel文件",
+        key="agg_file_uploader"
+    )
+    
+    if file:
+        with st.spinner("🥔 加载中..."):
+            df = load_excel_file(file)
+            if df is not None:
+                st.session_state.agg_df = df
+                st.session_state.agg_result = None
+                st.markdown("""
+                <div class="success-cute">✅ 文件加载成功</div>
+                """, unsafe_allow_html=True)
+                
+                # 显示文件信息
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
+                
+                info_col1, info_col2, info_col3 = st.columns(3)
+                
+                with info_col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📝 总行数</div>
+                        <div class="metric-value">{len(df):,}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📊 总列数</div>
+                        <div class="metric-value">{len(df.columns)}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📋 字段列表</div>
+                        <div class="metric-value">{len(df.columns)}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # 显示所有字段
+                st.markdown("**📋 可用字段：**")
+                fields_display = "、".join([f"`{col}`" for col in df.columns])
+                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
+                
+                # 数据预览
+                with st.expander("👁️ 预览数据（前20行）"):
+                    st.dataframe(df.head(20), use_container_width=True, height=300)
+    
+    # 聚合配置
+    if st.session_state.agg_df is not None:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 聚合配置</div></div>', unsafe_allow_html=True)
+        
+        # 字段选择
+        config_col1, config_col2 = st.columns(2)
+        
+        with config_col1:
+            agg_cols = st.multiselect(
+                "🔑 聚合字段（相同值的行会合并）",
+                options=list(st.session_state.agg_df.columns),
+                default=[],
+                help="选择用于分组的字段，这些字段完全相同的行会被合并"
+            )
+        
+        with config_col2:
+            merge_cols = st.multiselect(
+                "📝 待合并字段（内容会拼接在一起）",
+                options=[col for col in st.session_state.agg_df.columns if col not in agg_cols],
+                default=[],
+                help="选择要合并内容的字段"
+            )
+        
+        # 分隔符设置
+        sep_col1, sep_col2, sep_col3 = st.columns([1, 2, 1])
+        
+        with sep_col1:
+            sep_options = {
+                "逗号 ,": ",",
+                "分号 ;": ";",
+                "顿号 、": "、",
+                "竖线 |": "|",
+                "空格": " ",
+                "换行（换行符）": "\n",
+                "斜杠 /": "/",
+                "自定义": "custom"
+            }
+            sep_preset = st.selectbox(
+                "🔣 预设分隔符",
+                options=list(sep_options.keys()),
+                index=0
+            )
+        
+        with sep_col2:
+            if sep_preset == "自定义":
+                separator = st.text_input(
+                    "✏️ 自定义分隔符",
+                    value=",",
+                    max_chars=10,
+                    help="输入自定义的分隔符"
+                )
+            else:
+                separator = sep_options[sep_preset]
+                st.text_input(
+                    "🔣 分隔符预览",
+                    value=f"「{separator}」",
+                    disabled=True
+                )
+        
+        with sep_col3:
+            st.markdown("""
+            <div style="padding: 0.8rem; background: #FFF8DC; border-radius: 12px; text-align: center;">
+                <div style="color: #8B4513; font-size: 0.85rem;">💡 示例输出</div>
+                <div style="color: #D2691E; font-weight: 600; margin-top: 0.3rem;">
+                    A{sep}B{sep}C
+                </div>
+            </div>
+            """.format(sep=separator if separator != "\n" else "换行"), unsafe_allow_html=True)
+        
+        # 配置验证提示
+        if len(agg_cols) == 0 and len(merge_cols) == 0:
+            st.markdown("""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 请至少选择一个「聚合字段」和一个「待合并字段」来配置聚合规则 🥔
+            </div>
+            """, unsafe_allow_html=True)
+        elif len(agg_cols) == 0:
+            st.markdown("""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 请至少选择一个「聚合字段」🥔
+            </div>
+            """, unsafe_allow_html=True)
+        elif len(merge_cols) == 0:
+            st.markdown("""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 请至少选择一个「待合并字段」🍠
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            # 预估聚合结果
+            st.markdown("<hr>", unsafe_allow_html=True)
+            
+            preview_col1, preview_col2 = st.columns(2)
+            
+            with preview_col1:
+                # 计算预估结果
+                original_count = len(st.session_state.agg_df)
+                
+                # 估算聚合后的行数（基于聚合字段的唯一组合数）
+                if agg_cols:
+                    unique_groups = st.session_state.agg_df.groupby(agg_cols).ngroups
+                else:
+                    unique_groups = 1
+                
+                st.markdown("**🥔 聚合预估**")
+                st.markdown(f"""
+                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; color: #8B4513;">
+                    <p style="margin: 0.3rem 0;">• 原始数据：<strong>{original_count:,}</strong> 条</p>
+                    <p style="margin: 0.3rem 0;">• 聚合后预计：<strong>{unique_groups:,}</strong> 条</p>
+                    <p style="margin: 0.3rem 0;">• 减少：<strong>{original_count - unique_groups:,}</strong> 条（{(1 - unique_groups/original_count)*100:.1f}%）</p>
+                    <p style="margin: 0.3rem 0;">• 分隔符：<code>{separator if separator != chr(10) else '换行符'}</code></p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with preview_col2:
+                st.markdown("**🍠 提示**")
+                st.markdown("""
+                <div style="background: #FFE4C4; padding: 1rem; border-radius: 12px; color: #8B4513;">
+                    <p style="margin: 0.3rem 0;">💡 聚合字段完全相同的行会被合并</p>
+                    <p style="margin: 0.3rem 0;">💡 待合并字段的内容会按顺序拼接</p>
+                    <p style="margin: 0.3rem 0;">💡 空值会自动跳过</p>
+                    <p style="margin: 0.3rem 0;">💡 非待合并字段保留第一行值</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # 执行聚合按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        
+        with col_btn2:
+            if st.button("🚀 开始聚合", type="primary", use_container_width=True):
+                if len(agg_cols) == 0:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请至少选择一个「聚合字段」🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                if len(merge_cols) == 0:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请至少选择一个「待合并字段」🍠</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                with st.spinner("🍠 正在聚合数据..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        # 执行聚合
+                        start_time = time.time()
+                        
+                        status_text.text("🥔 正在分析数据结构...")
+                        progress_bar.progress(0.2)
+                        
+                        df = st.session_state.agg_df.copy()
+                        
+                        # 确定需要保留的字段（非聚合且非待合并的字段）
+                        other_cols = [col for col in df.columns if col not in agg_cols and col not in merge_cols]
+                        
+                        # 构建聚合函数
+                        # - 聚合字段：保留（自然保留）
+                        # - 待合并字段：用分隔符连接
+                        # - 其他字段：取第一个值
+                        agg_funcs = {}
+                        for col in merge_cols:
+                            agg_funcs[col] = lambda x, sep=separator: sep.join(
+                                [str(v) for v in x.dropna().astype(str) if str(v).strip()]
+                            )
+                        for col in other_cols:
+                            agg_funcs[col] = 'first'
+                        
+                        progress_bar.progress(0.4)
+                        status_text.text("🥔 正在分组聚合...")
+                        
+                        # 执行groupby聚合
+                        result_df = df.groupby(agg_cols, as_index=False, sort=False).agg(agg_funcs)
+                        
+                        progress_bar.progress(0.8)
+                        status_text.text("🍠 正在整理结果...")
+                        
+                        # 调整列顺序：聚合字段 + 待合并字段 + 其他字段
+                        final_columns = agg_cols + merge_cols + other_cols
+                        result_df = result_df[[col for col in final_columns if col in result_df.columns]]
+                        
+                        progress_bar.progress(1.0)
+                        status_text.empty()
+                        progress_bar.empty()
+                        
+                        processing_time = time.time() - start_time
+                        
+                        st.session_state.agg_result = {
+                            'result_df': result_df,
+                            'original_count': len(st.session_state.agg_df),
+                            'result_count': len(result_df),
+                            'processing_time': processing_time
+                        }
+                        
+                        # 显示成功消息
+                        st.markdown("""
+                        <div class="success-cute" style="margin-top: 1rem;">
+                            🎉 聚合完成！可以下载结果文件了 🥔🎉
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.markdown(f"""
+                        <div class="error-cute">
+                            ❌ 聚合失败：{str(e)} 🥔
+                        </div>
+                        """, unsafe_allow_html=True)
+    
+    # 显示聚合结果
+    if st.session_state.agg_result:
+        result = st.session_state.agg_result
+        result_df = result['result_df']
+        
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 聚合结果统计</div></div>', unsafe_allow_html=True)
+        
+        # 统计卡片
+        result_col1, result_col2, result_col3, result_col4, result_col5 = st.columns(5)
+        
+        with result_col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 原始行数</div>
+                <div class="metric-value">{result['original_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 聚合后</div>
+                <div class="metric-value">{result['result_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col3:
+            reduced = result['original_count'] - result['result_count']
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📉 减少行数</div>
+                <div class="metric-value">{reduced:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col4:
+            reduce_rate = (1 - result['result_count'] / result['original_count']) * 100
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📊 压缩率</div>
+                <div class="metric-value">{reduce_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col5:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">⏱️ 处理时间</div>
+                <div class="metric-value">{result['processing_time']:.2f}s</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 聚合效果提示
+        if reduce_rate > 50:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                🎉 太棒了！数据压缩了 <strong>{reduce_rate:.1f}%</strong>，效率大幅提升 🥔🎉
+            </div>
+            """, unsafe_allow_html=True)
+        elif reduce_rate > 20:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                😊 不错的效果！数据压缩了 <strong>{reduce_rate:.1f}%</strong> 🍠
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 数据相似度较低，压缩了 <strong>{reduce_rate:.1f}%</strong> 🥔
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 结果预览
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
+        
+        # 预览前50行
+        preview_rows = min(50, len(result_df))
+        st.dataframe(result_df.head(preview_rows), use_container_width=True, height=350)
+        
+        st.caption(f"显示前 {preview_rows} 行，共 {len(result_df):,} 行")
+        
+        # 下载按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
+        
+        excel_bytes = excel_to_bytes(result_df, "聚合结果.xlsx")
+        
+        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
+        
+        with download_col1:
+            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
+        
+        with download_col2:
+            st.download_button(
+                label="📥 下载聚合结果Excel",
+                data=excel_bytes,
+                file_name=f"数据聚合结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        
+        with download_col3:
+            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
+            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 底部
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="footer">
+        <p>Made with 🥔 by 洋芋头</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================
 # 主应用入口
 # ============================================
 def main():
@@ -1193,7 +1650,7 @@ def main():
         
         page = st.radio(
             "🧭 选择工具",
-            options=["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器"],
+            options=["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器"],
             index=0,
             label_visibility="collapsed"
         )
@@ -1203,7 +1660,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.0 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.1 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1214,6 +1671,8 @@ def main():
         show_compare_tool()
     elif page == "✂️ 数据拆分器":
         show_split_tool()
+    elif page == "🔗 数据聚合器":
+        show_aggregate_tool()
 
 
 if __name__ == "__main__":

@@ -90,11 +90,14 @@ st.markdown("""
         justify-content: center;
         gap: 1rem;
         margin: 1rem 0;
+        position: relative;
+        z-index: 1;
     }
     
     .potato-decoration span {
         font-size: 2rem;
         animation: float 3s ease-in-out infinite;
+        position: relative;
     }
     
     .potato-decoration span:nth-child(2) { animation-delay: 0.5s; }
@@ -103,21 +106,21 @@ st.markdown("""
     
     @keyframes float {
         0%, 100% { transform: translateY(0) rotate(0deg); }
-        50% { transform: translateY(-10px) rotate(5deg); }
+        50% { transform: translateY(-8px) rotate(3deg); }
     }
     
     /* ===== 卡片样式 ===== */
     .potato-card {
         background: linear-gradient(145deg, #FFFEF9 0%, #FFF5E6 100%);
         border-radius: 20px;
-        padding: 1.5rem;
+        padding: 1.2rem 1.5rem;
         box-shadow: 0 4px 15px rgba(139, 69, 19, 0.1);
         border: 2px solid #DEB887;
-        transition: all 0.3s ease;
+        transition: box-shadow 0.3s ease;
+        margin-bottom: 0.5rem;
     }
     
     .potato-card:hover {
-        transform: translateY(-2px);
         box-shadow: 0 6px 20px rgba(139, 69, 19, 0.15);
     }
     
@@ -205,6 +208,17 @@ st.markdown("""
         background: linear-gradient(180deg, #FFF8DC 0%, #FFE4C4 100%);
     }
     
+    /* 侧边栏与主内容区域隔离 */
+    [data-testid="stSidebar"] {
+        z-index: 50;
+    }
+    
+    /* 主内容区域确保在最上层 */
+    [data-testid="stMain"] {
+        position: relative;
+        z-index: 10;
+    }
+    
     /* ===== 文件上传区域 ===== */
     .upload-section {
         background: linear-gradient(145deg, #FFFAF0 0%, #FFF5E6 100%);
@@ -213,11 +227,61 @@ st.markdown("""
         border: 3px dashed #DEB887;
         text-align: center;
         transition: all 0.3s ease;
+        position: relative;
+        z-index: 10;
     }
     
     .upload-section:hover {
         border-color: #FFA500;
         background: linear-gradient(145deg, #FFFFFF 0%, #FFF8DC 100%);
+    }
+    
+    /* 文件上传组件样式修复 - 确保层级最高 */
+    [data-testid="stFileUploadDropzone"] {
+        position: relative;
+        z-index: 100 !important;
+        border-radius: 16px !important;
+        border: 2px dashed #DEB887 !important;
+        background: linear-gradient(145deg, #FFFAF0 0%, #FFF8DC 100%) !important;
+        padding: 1.5rem !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    [data-testid="stFileUploadDropzone"]:hover {
+        border-color: #FFA500 !important;
+        background: linear-gradient(145deg, #FFFFFF 0%, #FFF5E6 100%) !important;
+    }
+    
+    /* 文件上传区域内的按钮 */
+    [data-testid="stFileUploadDropzone"] button,
+    [data-testid="stFileUploadDropzone"] [data-testid="stStyledFileUploadDropzoneButton"] {
+        background: linear-gradient(135deg, #FFA500 0%, #FF8C00 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 30px !important;
+        padding: 0.6rem 1.5rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 15px rgba(255, 140, 0, 0.3) !important;
+    }
+    
+    [data-testid="stFileUploadDropzone"] button:hover,
+    [data-testid="stFileUploadDropzone"] [data-testid="stStyledFileUploadDropzoneButton"]:hover {
+        background: linear-gradient(135deg, #FFB733 0%, #FFA500 100%) !important;
+        box-shadow: 0 6px 20px rgba(255, 140, 0, 0.4) !important;
+    }
+    
+    /* 文件上传标签文字 */
+    [data-testid="stFileUploadDropzone"] label,
+    [data-testid="stFileUploadDropzone"] p {
+        color: #8B4513 !important;
+        font-weight: 600 !important;
+    }
+    
+    /* 已上传文件的样式 */
+    [data-testid="stFileUploadDropzone"] [data-testid="stUploadedFileDisplay"] {
+        background: #FFF8DC !important;
+        border-radius: 12px !important;
+        padding: 0.5rem !important;
     }
     
     /* ===== 成功/警告/错误提示 ===== */
@@ -278,6 +342,8 @@ st.markdown("""
         background: #FFFAF0;
         border-radius: 12px;
         border: 2px solid #DEB887;
+        position: relative;
+        z-index: 20;
     }
     
     /* ===== 多选框样式 ===== */
@@ -285,6 +351,13 @@ st.markdown("""
         background: #FFFAF0;
         border-radius: 12px;
         border: 2px solid #DEB887;
+        position: relative;
+        z-index: 20;
+    }
+    
+    /* ===== Columns布局隔离 ===== */
+    [data-testid="column"] {
+        position: relative;
     }
     
     /* ===== 分隔线 ===== */

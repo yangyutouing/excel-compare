@@ -367,6 +367,58 @@ st.markdown("""
             font-size: 1.4rem;
         }
     }
+    
+    /* ===== Streamlit 默认英文替换 ===== */
+    
+    /* 文件上传按钮 - 替换 Browse files */
+    [data-testid="stFileUploadDropzone"] [data-testid="stStyledFileUploadDropzoneButton"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 文件上传区域的按钮文字 */
+    [data-testid="stFileUploadDropzone"] button {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 当存在文件时的拖拽区域 */
+    [data-testid="stFileUploadDropzone"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 多选框的下拉选项 */
+    [data-baseweb="popover"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 下拉选项 */
+    [data-baseweb="select"] > div > div {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* Tooltip 提示 */
+    [data-testid="stTooltipContent"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* spinner 加载动画 */
+    [data-testid="stSpinner"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 替换所有按钮中的英文 */
+    button {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* Selectbox 选项 */
+    [role="option"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
+    
+    /* 多选标签 */
+    [data-testid="stMultiSelect"] [data-testid="stSelectLabel"] {
+        font-family: 'Nunito', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -546,7 +598,7 @@ def main():
         <h1 class="potato-title">
             🥔 土豆数据小助手 🥔
         </h1>
-        <p class="potato-subtitle">✨ 让数据比对变得像挖土豆一样简单有趣 ✨</p>
+        <p class="potato-subtitle">✨ 让数据工作变得像挖土豆一样简单有趣 ✨</p>
     </div>
     
     <div class="potato-decoration">
@@ -611,7 +663,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        st.caption("🥔 v2.0 可爱版")
+        st.caption("🥔 v2.0 ")
     
     # 文件上传区域
     col1, col2 = st.columns(2)
@@ -619,15 +671,16 @@ def main():
     with col1:
         st.markdown("""
         <div class="potato-card">
-            <div class="potato-card-header">📁 主表 (文件1)</div>
+            <div class="potato-card-header">📁 主表（文件1）</div>
         </div>
         """, unsafe_allow_html=True)
         
         file1 = st.file_uploader(
-            "选择Excel文件作为主表",
+            "点击选择Excel文件或将文件拖拽到此处",
             type=['xlsx', 'xls'],
             help="🥔 主表将作为输出文件的基础，数据将被回填到此表",
-            label_visibility="collapsed"
+            label_visibility="visible",
+            key="file_uploader_1"
         )
         
         if file1:
@@ -637,7 +690,7 @@ def main():
                     st.session_state.df1 = df1
                     st.markdown("""
                     <div class="success-cute">
-                        ✅ 已加载: {} 🥔
+                        ✅ 已加载：{} 🥔
                     </div>
                     """.format(file1.name), unsafe_allow_html=True)
                     display_column_preview(df1)
@@ -645,15 +698,16 @@ def main():
     with col2:
         st.markdown("""
         <div class="potato-card">
-            <div class="potato-card-header">📁 数据源 (文件2)</div>
+            <div class="potato-card-header">📁 数据源（文件2）</div>
         </div>
         """, unsafe_allow_html=True)
         
         file2 = st.file_uploader(
-            "选择Excel文件作为数据源",
+            "点击选择Excel文件或将文件拖拽到此处",
             type=['xlsx', 'xls'],
             help="🍠 数据源提供要回填的数据",
-            label_visibility="collapsed"
+            label_visibility="visible",
+            key="file_uploader_2"
         )
         
         if file2:
@@ -663,7 +717,7 @@ def main():
                     st.session_state.df2 = df2
                     st.markdown("""
                     <div class="success-cute">
-                        ✅ 已加载: {} 🍠
+                        ✅ 已加载：{} 🍠
                     </div>
                     """.format(file2.name), unsafe_allow_html=True)
                     display_column_preview(df2)
@@ -717,18 +771,22 @@ def main():
         with config_col1:
             match_col1 = st.selectbox(
                 "🎯 主表匹配字段",
-                options=[""] + list(st.session_state.df1.columns),
+                options=["（请选择字段）"] + list(st.session_state.df1.columns),
                 index=0,
                 help="🥔 选择主表中用于匹配的字段"
             )
+            if match_col1 == "（请选择字段）":
+                match_col1 = ""
         
         with config_col2:
             match_col2 = st.selectbox(
                 "🎯 数据源匹配字段",
-                options=[""] + list(st.session_state.df2.columns),
+                options=["（请选择字段）"] + list(st.session_state.df2.columns),
                 index=0,
                 help="🍠 选择数据源中用于匹配的字段"
             )
+            if match_col2 == "（请选择字段）":
+                match_col2 = ""
         
         with config_col3:
             fill_cols = st.multiselect(
@@ -748,7 +806,7 @@ def main():
                 if match_col1 in st.session_state.df1.columns:
                     unique_count = st.session_state.df1[match_col1].nunique()
                     null_count = st.session_state.df1[match_col1].isnull().sum()
-                    st.caption(f"✨ 唯一值: {unique_count:,} | ❓ 空值: {null_count:,}")
+                    st.caption(f"✨ 唯一值：{unique_count:,} | ❓ 空值：{null_count:,}")
                     st.write(st.session_state.df1[match_col1].dropna().head(10).tolist())
             
             with preview_col2:
@@ -756,7 +814,7 @@ def main():
                 if match_col2 in st.session_state.df2.columns:
                     unique_count = st.session_state.df2[match_col2].nunique()
                     null_count = st.session_state.df2[match_col2].isnull().sum()
-                    st.caption(f"✨ 唯一值: {unique_count:,} | ❓ 空值: {null_count:,}")
+                    st.caption(f"✨ 唯一值：{unique_count:,} | ❓ 空值：{null_count:,}")
                     st.write(st.session_state.df2[match_col2].dropna().head(10).tolist())
         
         # 执行按钮
@@ -953,7 +1011,7 @@ def main():
                 
                 st.markdown(f"""
                 <div style="text-align: center; color: #8B4513; margin-top: 1rem;">
-                    ⏱️ 处理耗时: <strong>{stats['processing_time']:.2f}</strong> 秒 | 
+                    ⏱️ 处理耗时：<strong>{stats['processing_time']:.2f}</strong> 秒 | 
                     📊 文件包含 <strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
                 </div>
                 """, unsafe_allow_html=True)
@@ -964,8 +1022,8 @@ def main():
     st.markdown("""
     <div class="footer">
         <div class="footer-emoji">🥔 🍠 🥔 🍠 🥔</div>
-        <p>💡 提示: 请确保Excel文件格式正确，匹配字段内容一致哦~</p>
-        <p>Made with 🥔 by 土豆数据小助手</p>
+        <p>💡 提示：请确保Excel文件格式正确，匹配字段内容一致哦~</p>
+        <p>Made with 🥔 by 洋芋头</p>
     </div>
     """, unsafe_allow_html=True)
 

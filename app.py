@@ -447,44 +447,35 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-        <div style="margin-top: 1rem;">
-            <!-- v2.1 当前版本 -->
-            <div style="background: linear-gradient(135deg, #FFF8DC 0%, #FFE4C4 100%); border-radius: 12px; padding: 1rem; margin-bottom: 1rem;">
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">🥔 v2.1</span>
-                    <span style="color: #8B4513; margin-left: 0.8rem; font-weight: 600;">当前版本</span>
-                </div>
-                <ul style="color: #8B4513; font-size: 0.9rem; margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                    <li>新增 <b>数据聚合器</b> 功能</li>
-                    <li>优化数据比对回填逻辑</li>
-                    <li>首页支持点击跳转工具</li>
-                </ul>
-            </div>
+        <div style="margin-top: 1rem; color: #8B4513;">
+            <p style="margin: 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.1</span>
+                当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增数据聚合器功能</li>
+                <li>优化数据比对回填逻辑</li>
+                <li>首页支持点击跳转工具</li>
+            </ul>
             
-            <!-- v2.0 工具箱版 -->
-            <div style="background: #FFF8DC; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; opacity: 0.9;">
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="background: #D2691E; color: white; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">🍠 v2.0</span>
-                    <span style="color: #8B4513; margin-left: 0.8rem;">工具箱版</span>
-                </div>
-                <ul style="color: #8B4513; font-size: 0.9rem; margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                    <li>重构为多工具集架构</li>
-                    <li>新增 <b>数据拆分器</b> 功能</li>
-                    <li>土豆主题UI优化</li>
-                </ul>
-            </div>
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #D2691E; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🍠 v2.0</span>
+                工具箱版
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>重构为多工具集架构</li>
+                <li>新增数据拆分器功能</li>
+                <li>土豆主题UI优化</li>
+            </ul>
             
-            <!-- v1.0 初始版本 -->
-            <div style="background: #FFF8DC; border-radius: 12px; padding: 1rem; opacity: 0.8;">
-                <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
-                    <span style="background: #8B4513; color: white; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600;">🥔 v1.0</span>
-                    <span style="color: #8B4513; margin-left: 0.8rem;">初始版本</span>
-                </div>
-                <ul style="color: #8B4513; font-size: 0.9rem; margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                    <li>数据比对回填功能</li>
-                    <li>可爱土豆风格界面</li>
-                </ul>
-            </div>
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #8B4513; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v1.0</span>
+                初始版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>数据比对回填功能</li>
+                <li>可爱土豆风格界面</li>
+            </ul>
         </div>
     </div>
     """, unsafe_allow_html=True)

@@ -436,11 +436,11 @@ def show_home():
             <div class="tool-title">更多工具...</div>
             <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 洋芋头正在努力种植新的工具ing...
+                🥔 洋芋头正在努力种植新的工具...
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
+        st.button("🚀 敬请期待ing", key="go_more", use_container_width=True, disabled=True)
     
     # 版本更新
     st.markdown("""

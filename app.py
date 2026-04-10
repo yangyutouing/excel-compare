@@ -1229,7 +1229,7 @@ def show_split_tool():
     
     if file:
         with st.spinner("🥔 加载中..."):
-            df = load_excel_file(file)
+            df = load_data_file(file)
             if df is not None:
                 st.session_state.split_df = df
                 st.session_state.split_result = None
@@ -1561,7 +1561,7 @@ def show_aggregate_tool():
     
     if file:
         with st.spinner("🥔 加载中..."):
-            df = load_excel_file(file)
+            df = load_data_file(file)
             if df is not None:
                 st.session_state.agg_df = df
                 st.session_state.agg_result = None
@@ -2182,7 +2182,7 @@ def show_domain_tool():
     
     if file:
         with st.spinner("🥔 加载中..."):
-            df = load_excel_file(file)
+            df = load_data_file(file)
             if df is not None:
                 st.session_state.domain_df = df
                 st.session_state.domain_result = None

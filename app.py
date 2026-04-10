@@ -494,27 +494,37 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-                v2.2当前版本
-                1、新增域名提取器功能</li>
-                2、支持政务类域名和普通域名</li>
-                3、支持提取主域名和子域名
-                
-                v2.1工具箱优化版本
-              
-                1、新增数据聚合器功能
-                2、优化数据比对回填逻辑
-                3、首页支持点击跳转工具
+        <div style="margin-top: 1rem; color: #8B4513;">
+            <p style="margin: 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.2</span>
+                当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增域名提取器功能</li>
+                <li>支持政务类域名和普通域名</li>
+                <li>支持提取主域名和子域名</li>
+            </ul>
             
-                v2.0工具箱版
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #D2691E; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🍠 v2.0</span>
+                工具箱版
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>重构为多工具集架构</li>
+                <li>新增数据拆分器功能</li>
+                <li>土豆主题UI优化</li>
+            </ul>
             
-                1、重构为多工具集架构
-                2、新增数据拆分器功能
-                3、土豆主题UI优化
-            
-                v1.0初始版本
-                1、数据比对回填功能
-                2、可爱土豆风格界面
-
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #8B4513; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v1.0</span>
+                初始版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>数据比对回填功能</li>
+                <li>可爱土豆风格界面</li>
+            </ul>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 底部装饰

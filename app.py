@@ -1881,76 +1881,117 @@ def show_domain_tool():
     if 'domain_result' not in st.session_state:
         st.session_state.domain_result = None
     
-    # 域名提取函数
+    # 域名提取函数 - 增加异常处理和中文错误提示
     def extract_domain_from_url(url):
-        """从URL中提取域名（去除协议和端口号）"""
-        if pd.isna(url) or not str(url).strip():
-            return None
-        
-        url = str(url).strip()
-        
-        # 去除协议
-        for protocol in ['https://', 'http://', 'HTTPS://', 'HTTP://']:
-            if url.startswith(protocol):
-                url = url[len(protocol):]
-                break
-        
-        # 去除路径（取第一个/之前的部分）
-        if '/' in url:
-            url = url.split('/')[0]
-        
-        # 去除端口号
-        if ':' in url:
-            url = url.split(':')[0]
-        
-        return url if url else None
+        """从URL中提取域名（去除协议和端口号），返回 (域名, 错误信息) 元组"""
+        try:
+            # 处理空值
+            if pd.isna(url) or not str(url).strip():
+                return (None, "空值")
+            
+            url = str(url).strip()
+            
+            # 检查是否为空字符串
+            if not url:
+                return (None, "空值")
+            
+            # 检查是否包含有效域名特征（至少有一个点）
+            if '.' not in url:
+                return (None, "非URL格式")
+            
+            # 去除协议
+            for protocol in ['https://', 'http://', 'HTTPS://', 'HTTP://']:
+                if url.startswith(protocol):
+                    url = url[len(protocol):]
+                    break
+            
+            # 去除路径（取第一个/之前的部分）
+            if '/' in url:
+                url = url.split('/')[0]
+            
+            # 去除端口号
+            if ':' in url:
+                url = url.split(':')[0]
+            
+            # 验证结果是否有效域名
+            if not url or len(url) < 4:  # 最少应该是 x.x 格式
+                return (None, "域名格式无效")
+            
+            return (url, None)
+            
+        except Exception as e:
+            return (None, f"解析异常")
     
     def is_gov_domain(domain):
         """判断是否为政务类域名"""
-        if not domain:
+        try:
+            if not domain:
+                return False
+            parts = domain.lower().split('.')
+            # 政务类域名通常为 xxx.gov.cn 或 xxx.省.gov.cn 格式
+            # 检查是否以 gov.cn 结尾
+            if len(parts) >= 2 and parts[-2] == 'gov' and parts[-1] == 'cn':
+                return True
             return False
-        parts = domain.lower().split('.')
-        # 政务类域名通常为 xxx.gov.cn 或 xxx.省.gov.cn 格式
-        # 检查是否以 gov.cn 结尾
-        if len(parts) >= 2 and parts[-2] == 'gov' and parts[-1] == 'cn':
-            return True
-        return False
+        except Exception:
+            return False
     
-    def get_main_domain(domain):
-        """提取主域名"""
-        if not domain:
-            return None
-        
-        parts = domain.split('.')
-        
-        if is_gov_domain(domain):
-            # 政务类域名：最后三段
-            if len(parts) >= 3:
-                return '.'.join(parts[-3:])
-            return domain
-        else:
-            # 普通域名：最后两段
-            if len(parts) >= 2:
-                return '.'.join(parts[-2:])
-            return domain
+    def extract_target_domain(domain, domain_type, extract_type):
+        """根据域名类型和提取类型提取目标域名，返回 (域名, 错误信息) 元组"""
+        try:
+            if not domain:
+                return (None, "空域名")
+            
+            parts = domain.split('.')
+            
+            if domain_type == "政务类域名":
+                # 政务类域名
+                if extract_type == "主域名":
+                    # 主域名 = 最后三段
+                    if len(parts) >= 3:
+                        return ('.'.join(parts[-3:]), None)
+                    else:
+                        return (domain, "域名段数不足(政务主域名)")
+                else:
+                    # 子域名 = 最后四段
+                    if len(parts) >= 4:
+                        return ('.'.join(parts[-4:]), None)
+                    else:
+                        return (domain, "域名段数不足(政务子域名)")
+            else:
+                # 普通域名
+                if extract_type == "主域名":
+                    # 主域名 = 最后两段
+                    if len(parts) >= 2:
+                        return ('.'.join(parts[-2:]), None)
+                    else:
+                        return (domain, "域名段数不足(普通主域名)")
+                else:
+                    # 子域名 = 最后三段
+                    if len(parts) >= 3:
+                        return ('.'.join(parts[-3:]), None)
+                    else:
+                        return (domain, "域名段数不足(普通子域名)")
+                        
+        except Exception as e:
+            return (None, "提取异常")
     
-    def get_subdomain(domain):
-        """提取子域名"""
-        if not domain:
-            return None
-        
-        parts = domain.split('.')
-        
-        if is_gov_domain(domain):
-            # 政务类域名：最后四段
-            if len(parts) >= 4:
-                return '.'.join(parts[-4:])
-            return domain
-        else:
-            # 普通域名：最后三段
-            if len(parts) >= 3:
-                return '.'.join(parts[-3:])
-            return domain
+    def safe_extract_domain(url, domain_type, extract_type):
+        """安全的域名提取函数，统一处理所有异常"""
+        try:
+            # 第一步：提取域名（去除协议、端口、路径）
+            domain, error1 = extract_domain_from_url(url)
+            
+            if error1:
+                return (None, error1)
+            
+            # 第二步：根据配置提取目标域名
+            result, error2 = extract_target_domain(domain, domain_type, extract_type)
+            
+            return (result, error2)
+            
+        except Exception as e:
+            return (None, f"未知异常")
     
     # 使用说明
     with st.sidebar:
@@ -2129,37 +2170,51 @@ def show_domain_tool():
                         
                         df = st.session_state.domain_df.copy()
                         
-                        # 提取域名
-                        status_text.text("🥔 正在提取域名...")
-                        progress_bar.progress(0.4)
-                        
-                        # 先提取完整域名
-                        domains = df[url_field].apply(extract_domain_from_url)
-                        
-                        progress_bar.progress(0.6)
-                        status_text.text("🥔 正在处理域名...")
-                        
-                        # 根据配置提取目标域名
+                        # 确定新列名
                         if domain_type == "政务类域名":
                             if extract_type == "主域名":
-                                result_domains = domains.apply(get_main_domain)
                                 new_col_name = "提取主域名(政务)"
                             else:
-                                result_domains = domains.apply(get_subdomain)
                                 new_col_name = "提取子域名(政务)"
                         else:
                             if extract_type == "主域名":
-                                result_domains = domains.apply(get_main_domain)
                                 new_col_name = "提取主域名"
                             else:
-                                result_domains = domains.apply(get_subdomain)
                                 new_col_name = "提取子域名"
+                        
+                        status_text.text("🥔 正在提取域名...")
+                        progress_bar.progress(0.4)
+                        
+                        # 使用安全的提取函数处理每一行
+                        results = []
+                        errors = []
+                        total = len(df)
+                        
+                        for idx, url in enumerate(df[url_field]):
+                            result, error = safe_extract_domain(url, domain_type, extract_type)
+                            results.append(result)
+                            errors.append(error)
+                            
+                            # 每100行更新一次进度
+                            if idx % 100 == 0:
+                                progress = 0.4 + (idx / total) * 0.4
+                                progress_bar.progress(progress)
                         
                         progress_bar.progress(0.8)
                         status_text.text("🍠 正在整理结果...")
                         
-                        # 添加新列
-                        df[new_col_name] = result_domains
+                        # 添加结果列
+                        df[new_col_name] = results
+                        
+                        # 统计成功/失败
+                        success_count = sum(1 for e in errors if e is None)
+                        fail_count = total - success_count
+                        
+                        # 统计错误类型
+                        error_stats = {}
+                        for e in errors:
+                            if e is not None:
+                                error_stats[e] = error_stats.get(e, 0) + 1
                         
                         progress_bar.progress(1.0)
                         status_text.empty()
@@ -2167,19 +2222,16 @@ def show_domain_tool():
                         
                         processing_time = time.time() - start_time
                         
-                        # 统计结果
-                        success_count = result_domains.notna().sum()
-                        fail_count = result_domains.isna().sum()
-                        
                         st.session_state.domain_result = {
                             'result_df': df,
                             'success_count': success_count,
                             'fail_count': fail_count,
-                            'total_count': len(df),
+                            'total_count': total,
                             'new_col_name': new_col_name,
                             'processing_time': processing_time,
                             'domain_type': domain_type,
-                            'extract_type': extract_type
+                            'extract_type': extract_type,
+                            'error_stats': error_stats
                         }
                         
                         # 显示成功消息
@@ -2194,7 +2246,7 @@ def show_domain_tool():
                         status_text.empty()
                         st.markdown(f"""
                         <div class="error-cute">
-                            ❌ 提取失败：{str(e)} 🥔
+                            ❌ 提取失败：URL格式不正确，无法解析 🥔
                         </div>
                         """, unsafe_allow_html=True)
     
@@ -2228,7 +2280,7 @@ def show_domain_tool():
         with result_col3:
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-label">❌ 提取失败</div>
+                <div class="metric-label">⚠️ 跳过</div>
                 <div class="metric-value" style="color: #FF6347;">{result['fail_count']:,}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -2249,6 +2301,50 @@ def show_domain_tool():
                 <div class="metric-value">{result['processing_time']:.2f}s</div>
             </div>
             """, unsafe_allow_html=True)
+        
+        # 显示错误类型统计
+        error_stats = result.get('error_stats', {})
+        if error_stats:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown('<div class="potato-card"><div class="potato-card-header">⚠️ 跳过详情（未能提取的记录）</div></div>', unsafe_allow_html=True)
+            
+            error_col1, error_col2 = st.columns([2, 1])
+            
+            with error_col1:
+                # 显示错误统计表格
+                error_data = []
+                error_reason_map = {
+                    "空值": "空单元格或空字符串",
+                    "非URL格式": "不包含域名格式（如缺少"."）",
+                    "域名格式无效": "域名格式不符合规范",
+                    "域名段数不足(政务主域名)": "政务域名段数不足（需要至少3段）",
+                    "域名段数不足(政务子域名)": "政务域名段数不足（需要至少4段）",
+                    "域名段数不足(普通主域名)": "普通域名段数不足（需要至少2段）",
+                    "域名段数不足(普通子域名)": "普通域名段数不足（需要至少3段）",
+                    "解析异常": "解析过程中发生异常",
+                    "未知异常": "发生未知错误"
+                }
+                
+                for error_type, count in sorted(error_stats.items(), key=lambda x: -x[1]):
+                    reason = error_reason_map.get(error_type, error_type)
+                    error_data.append({"跳过类型": error_type, "原因": reason, "数量": count})
+                
+                if error_data:
+                    error_df = pd.DataFrame(error_data)
+                    st.dataframe(error_df, use_container_width=True, hide_index=True)
+            
+            with error_col2:
+                st.markdown("""
+                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px;">
+                    <div style="color: #8B4513; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">💡 说明</div>
+                    <ul style="color: #8B4513; font-size: 0.8rem; line-height: 1.6; padding-left: 1.2rem; margin: 0;">
+                        <li>空值行已自动跳过</li>
+                        <li>异常值已自动跳过</li>
+                        <li>结果中显示为空</li>
+                        <li>不会中断处理流程</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
         
         # 提取效果提示
         if success_rate >= 95:

@@ -302,7 +302,11 @@ def load_data_file(file) -> pd.DataFrame:
     file_name = file.name.lower()
     
     if file_name.endswith(('.xlsx', '.xls')):
-        return load_excel_file(file)
+        try:
+            return pd.read_excel(file, engine='openpyxl' if file_name.endswith('.xlsx') else 'xlrd')
+        except Exception as e:
+            st.error(f"❌ Excel文件加载失败: {str(e)}")
+            return None
     elif file_name.endswith('.csv'):
         return load_csv_file(file)
     else:

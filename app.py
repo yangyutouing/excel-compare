@@ -621,9 +621,39 @@ def show_compare_tool():
     if st.session_state.df1 is not None and st.session_state.df2 is not None:
         st.markdown("<hr>", unsafe_allow_html=True)
         
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 字段配置</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 匹配字段配置</div></div>', unsafe_allow_html=True)
         
-        config_col1, config_col2, config_col3 = st.columns(3)
+        # 字段数量对比
+        col_count_info = st.columns([1, 2])
+        with col_count_info[0]:
+            st.markdown(f"""
+            <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px;">
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    <b>📊 字段数量</b>
+                </div>
+                <div style="margin-top: 0.5rem; color: #D2691E;">
+                    主表：<b>{len(st.session_state.df1.columns)}</b> 个字段<br>
+                    数据源：<b>{len(st.session_state.df2.columns)}</b> 个字段<br>
+                    <span style="font-size: 0.85rem;">结果将包含：主表全部 + 数据源全部（带_来源后缀）</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_count_info[1]:
+            st.markdown(f"""
+            <div style="background: #FFE4C4; padding: 1rem; border-radius: 12px;">
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    <b>💡 说明</b>
+                </div>
+                <div style="margin-top: 0.5rem; color: #8B4513; font-size: 0.9rem;">
+                    只需选择<b>匹配字段</b>，数据源的所有字段都会自动添加（带<code>_来源</code>后缀），方便对比两边数据。
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        config_col1, config_col2 = st.columns(2)
         
         with config_col1:
             match_col1 = st.selectbox(
@@ -645,14 +675,6 @@ def show_compare_tool():
             if match_col2 == "（请选择）":
                 match_col2 = ""
         
-        with config_col3:
-            fill_cols = st.multiselect(
-                "🔄 回填字段",
-                options=list(st.session_state.df2.columns),
-                default=[],
-                help="选择要从数据源回填到主表的字段"
-            )
-        
         # 字段预览
         if match_col1 and match_col2:
             preview_col1, preview_col2 = st.columns(2)
@@ -672,6 +694,23 @@ def show_compare_tool():
                     null_count = st.session_state.df2[match_col2].isnull().sum()
                     st.caption(f"唯一值：{unique_count:,} | 空值：{null_count:,}")
                     st.write(st.session_state.df2[match_col2].dropna().head(8).tolist())
+            
+            # 预估结果字段
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown("**📋 结果预估**")
+            
+            # 计算预估的字段列表
+            all_cols1 = list(st.session_state.df1.columns)
+            all_cols2 = [f"{col}_来源" for col in st.session_state.df2.columns]
+            result_cols_count = len(all_cols1) + len(all_cols2)
+            
+            st.markdown(f"""
+            <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; color: #8B4513;">
+                <p style="margin: 0.3rem 0;">• 主表字段：<code>{', '.join(all_cols1[:5])}{'...' if len(all_cols1) > 5 else ''}</code>（{len(all_cols1)}个）</p>
+                <p style="margin: 0.3rem 0;">• 数据源字段（加_来源后缀）：<code>{', '.join(all_cols2[:5])}{'...' if len(all_cols2) > 5 else ''}</code>（{len(all_cols2)}个）</p>
+                <p style="margin: 0.3rem 0;">• <b>结果表总计：{result_cols_count} 个字段</b></p>
+            </div>
+            """, unsafe_allow_html=True)
         
         # 执行按钮
         st.markdown("<hr>", unsafe_allow_html=True)
@@ -679,7 +718,7 @@ def show_compare_tool():
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
         
         with col_btn2:
-            if st.button("🚀 开始比对与回填", type="primary", use_container_width=True):
+            if st.button("🚀 开始比对", type="primary", use_container_width=True):
                 if not match_col1:
                     st.markdown("""
                     <div class="error-cute">❌ 请选择主表匹配字段 🥔</div>
@@ -688,11 +727,6 @@ def show_compare_tool():
                 if not match_col2:
                     st.markdown("""
                     <div class="error-cute">❌ 请选择数据源匹配字段 🍠</div>
-                    """, unsafe_allow_html=True)
-                    return
-                if not fill_cols:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择至少一个回填字段 ✨</div>
                     """, unsafe_allow_html=True)
                     return
                 
@@ -709,7 +743,6 @@ def show_compare_tool():
                         st.session_state.df2,
                         match_col1,
                         match_col2,
-                        fill_cols,
                         update_progress
                     )
                 
@@ -750,10 +783,11 @@ def show_compare_tool():
                     """, unsafe_allow_html=True)
                 
                 with result_col4:
+                    source_col_count = len(stats.get('source_cols_added', []))
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="metric-label">✨ 回填单元格</div>
-                        <div class="metric-value">{stats['filled_cells']:,}</div>
+                        <div class="metric-label">📋 新增字段</div>
+                        <div class="metric-value">{source_col_count}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
@@ -781,11 +815,20 @@ def show_compare_tool():
                 
                 st.markdown('<div class="potato-decoration" style="margin: 0.8rem 0;">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
                 
+                # 新增字段提示
+                if stats.get('source_cols_added'):
+                    added_cols_str = "、".join([f"`{col}`" for col in stats['source_cols_added']])
+                    st.markdown(f"""
+                    <div class="success-cute" style="margin-bottom: 0.5rem;">
+                        📋 已新增数据源字段：{added_cols_str}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
                 # 错误信息
                 if stats['errors']:
-                    with st.expander("🐛 查看错误信息"):
+                    with st.expander("🐛 查看提示信息"):
                         for error in stats['errors']:
-                            st.markdown(f"<div class='error-cute'>❌ {error}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='warning-cute'>💡 {error}</div>", unsafe_allow_html=True)
                 
                 # 结果预览
                 with st.expander("👁️ 预览处理结果"):
@@ -836,19 +879,20 @@ def compare_and_fill(
     df2: pd.DataFrame,
     match_col1: str,
     match_col2: str,
-    fill_cols: list,
     progress_callback=None
 ) -> tuple[pd.DataFrame, dict]:
-    """执行数据比对和回填"""
+    """执行数据比对，结果包含主表所有字段 + 数据源所有字段（带_来源后缀）"""
     start_time = time.time()
     
+    # 复制主表作为结果基础
     result_df = df1.copy()
     
     stats = {
         "total_rows": len(df1),
         "matched_rows": 0,
-        "filled_cells": 0,
+        "source_rows_added": 0,
         "unmatched_rows": 0,
+        "source_cols_added": [],
         "errors": []
     }
     
@@ -860,32 +904,41 @@ def compare_and_fill(
         stats["errors"].append(f"数据源缺少匹配字段: {match_col2}")
         return result_df, stats
     
-    invalid_fill_cols = [col for col in fill_cols if col not in df2.columns]
-    if invalid_fill_cols:
-        stats["errors"].append(f"数据源缺少回填字段: {', '.join(invalid_fill_cols)}")
-        fill_cols = [col for col in fill_cols if col in df2.columns]
+    # 数据源的所有字段都添加（带_来源后缀）
+    source_cols = list(df2.columns)
     
-    if not fill_cols:
-        stats["errors"].append("没有有效的回填字段")
-        return result_df, stats
+    # 为数据源字段创建新列名（处理可能的名称冲突）
+    new_col_names = []
+    for col in source_cols:
+        new_col = f"{col}_来源"
+        # 确保新名称不与主表字段冲突
+        counter = 1
+        while new_col in result_df.columns:
+            new_col = f"{col}_来源{counter}"
+            counter += 1
+        new_col_names.append((col, new_col))
+        result_df[new_col] = None  # 预先创建空列
+        stats["source_cols_added"].append(new_col)
     
+    # 构建数据源字典
     source_dict = {}
     for idx, row in df2.iterrows():
         key = row[match_col2]
         if pd.notna(key):
-            source_dict[key] = {col: row[col] for col in fill_cols}
+            source_dict[key] = {orig_col: row[orig_col] for orig_col, _ in new_col_names}
     
-    total = len(df1)
+    # 执行合并
+    total = len(result_df)
     for idx, (result_idx, row) in enumerate(result_df.iterrows()):
         match_value = row[match_col1]
         
         if pd.notna(match_value) and match_value in source_dict:
             stats["matched_rows"] += 1
-            for col in fill_cols:
-                new_value = source_dict[match_value][col]
-                if pd.notna(new_value):
-                    result_df.at[result_idx, col] = new_value
-                    stats["filled_cells"] += 1
+            stats["source_rows_added"] += 1
+            for orig_col, new_col in new_col_names:
+                source_value = source_dict[match_value][orig_col]
+                if pd.notna(source_value):
+                    result_df.at[result_idx, new_col] = source_value
         else:
             stats["unmatched_rows"] += 1
         

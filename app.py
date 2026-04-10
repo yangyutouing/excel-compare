@@ -464,7 +464,7 @@ def show_home():
                 v1.0初始版本
                 1、数据比对回填功能
                 2、可爱土豆风格界面
-
+                
     """, unsafe_allow_html=True)
     
     # 底部装饰
@@ -491,6 +491,24 @@ def show_compare_tool():
     </div>
     
     <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">将两个Excel文件按关键字段进行数据比对和回填，适合数据整合场景。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传主表 → ② 上传数据源 → ③ 选择匹配字段 → ④ 选择回填字段 → ⑤ 执行回填
+                </div>
+            </div>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 初始化session state
@@ -985,6 +1003,24 @@ def show_split_tool():
     <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
     """, unsafe_allow_html=True)
     
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">将大型Excel文件按指定条数拆分成多个小文件，适合数据分发和分批处理。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel文件 → ② 设置拆分条数 → ③ 执行拆分 → ④ 下载压缩包
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
     # 初始化session state
     if 'split_df' not in st.session_state:
         st.session_state.split_df = None
@@ -1295,6 +1331,24 @@ def show_aggregate_tool():
     </div>
     
     <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">将相同数据的行合并，让内容聚合更高效，适合数据汇总和去重场景。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel文件 → ② 选择聚合字段 → ③ 选择待合并字段 → ④ 设置分隔符 → ⑤ 执行聚合
+                </div>
+            </div>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 初始化session state

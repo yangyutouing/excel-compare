@@ -1752,12 +1752,12 @@ def main():
         except ValueError:
             default_index = 0
         
+        # 注意：不使用 key 参数，让 index 参数根据 session_state.page 生效
         page = st.radio(
             "🧭 选择工具",
             options=options,
             index=default_index,
-            label_visibility="collapsed",
-            key="nav_radio"
+            label_visibility="collapsed"
         )
         
         # 更新 session_state

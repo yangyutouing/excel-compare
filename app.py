@@ -463,7 +463,7 @@ def show_home():
             
                 v1.0初始版本
                 1、数据比对回填功能
-                2、可爱土豆风格界面
+                2、增加丰富主题UI
                 
     """, unsafe_allow_html=True)
     

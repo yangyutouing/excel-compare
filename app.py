@@ -374,7 +374,7 @@ def show_home():
     # 工具列表
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
-        <div class="potato-card-header">🛠️ 可用工具</div>
+        <div class="potato-card-header">🛠️ 可用工具（点击进入使用）</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -429,30 +429,53 @@ def show_home():
             st.session_state.page = "🔗 数据聚合器"
             st.rerun()
     
-    with col4:
+    # 工具4：域名提取器
+    st.markdown("---")
+    col5, col6 = st.columns(2, gap="large")
+    
+    with col5:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🌐</div>
+            <div class="tool-title">域名提取器</div>
+            <div class="tool-desc">从URL中提取主域名或子域名</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                📁 上传Excel文件 → 选择URL字段 → 自动提取域名
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_domain", use_container_width=True):
+            st.session_state.page = "🌐 域名提取器"
+            st.rerun()
+    
+    with col6:
         st.markdown("""
         <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
             <div class="tool-icon">🚧</div>
             <div class="tool-title">更多工具...</div>
             <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 洋芋头正在努力种植新的工具...
+                🥔 土豆正在努力种植新的工具...
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.button("🚀 敬请期待ing", key="go_more", use_container_width=True, disabled=True)
+        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
     
     # 版本更新
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-        
-                v2.1当前版本
+                v2.2当前版本
+                1、新增域名提取器功能</li>
+                2、支持政务类域名和普通域名</li>
+                3、支持提取主域名和子域名
+                
+                v2.1工具箱优化版本
+              
                 1、新增数据聚合器功能
                 2、优化数据比对回填逻辑
                 3、首页支持点击跳转工具
-            
             
                 v2.0工具箱版
             
@@ -460,11 +483,10 @@ def show_home():
                 2、新增数据拆分器功能
                 3、土豆主题UI优化
             
-            
                 v1.0初始版本
                 1、数据比对回填功能
-                2、增加丰富主题UI
-                
+                2、可爱土豆风格界面
+
     """, unsafe_allow_html=True)
     
     # 底部装饰
@@ -1795,6 +1817,526 @@ def show_aggregate_tool():
 
 
 # ============================================
+# 页面5：域名提取器
+# ============================================
+def show_domain_tool():
+    """显示域名提取器工具"""
+    from urllib.parse import urlparse
+    
+    st.markdown("""
+    <div class="potato-header">
+        <h1 class="potato-title">🌐 域名提取器</h1>
+        <p class="potato-subtitle">✨ 从URL中提取主域名或子域名 ✨</p>
+    </div>
+    
+    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">从Excel中的URL列提取域名，支持政务类域名和普通域名，自动识别主域名或子域名。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel文件 → ② 选择URL字段 → ③ 设置域名类型和提取类型 → ④ 执行提取 → ⑤ 下载结果
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 域名提取规则说明
+    st.markdown("""
+    <div class="potato-card" style="margin-bottom: 1rem;">
+        <div class="potato-card-header">📖 提取规则说明</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
+            <div style="flex: 1; min-width: 280px; background: #FFF8DC; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🏛️ 政务类域名（.gov.cn）</div>
+                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
+                    <tr><td><b>示例URL：</b></td><td>https://services.credit.jiangsu.gov.cn:8809</td></tr>
+                    <tr><td><b>主域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">jiangsu.gov.cn</code>（最后三段）</td></tr>
+                    <tr><td><b>子域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">credit.jiangsu.gov.cn</code>（最后四段）</td></tr>
+                </table>
+            </div>
+            <div style="flex: 1; min-width: 280px; background: #FFF0F5; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🌐 普通域名</div>
+                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
+                    <tr><td><b>示例URL：</b></td><td>https://www.example.com/path/to/page</td></tr>
+                    <tr><td><b>主域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">example.com</code>（最后两段）</td></tr>
+                    <tr><td><b>子域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">www.example.com</code>（最后三段）</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 初始化session state
+    if 'domain_df' not in st.session_state:
+        st.session_state.domain_df = None
+    if 'domain_result' not in st.session_state:
+        st.session_state.domain_result = None
+    
+    # 域名提取函数
+    def extract_domain_from_url(url):
+        """从URL中提取域名（去除协议和端口号）"""
+        if pd.isna(url) or not str(url).strip():
+            return None
+        
+        url = str(url).strip()
+        
+        # 去除协议
+        for protocol in ['https://', 'http://', 'HTTPS://', 'HTTP://']:
+            if url.startswith(protocol):
+                url = url[len(protocol):]
+                break
+        
+        # 去除路径（取第一个/之前的部分）
+        if '/' in url:
+            url = url.split('/')[0]
+        
+        # 去除端口号
+        if ':' in url:
+            url = url.split(':')[0]
+        
+        return url if url else None
+    
+    def is_gov_domain(domain):
+        """判断是否为政务类域名"""
+        if not domain:
+            return False
+        parts = domain.lower().split('.')
+        # 政务类域名通常为 xxx.gov.cn 或 xxx.省.gov.cn 格式
+        # 检查是否以 gov.cn 结尾
+        if len(parts) >= 2 and parts[-2] == 'gov' and parts[-1] == 'cn':
+            return True
+        return False
+    
+    def get_main_domain(domain):
+        """提取主域名"""
+        if not domain:
+            return None
+        
+        parts = domain.split('.')
+        
+        if is_gov_domain(domain):
+            # 政务类域名：最后三段
+            if len(parts) >= 3:
+                return '.'.join(parts[-3:])
+            return domain
+        else:
+            # 普通域名：最后两段
+            if len(parts) >= 2:
+                return '.'.join(parts[-2:])
+            return domain
+    
+    def get_subdomain(domain):
+        """提取子域名"""
+        if not domain:
+            return None
+        
+        parts = domain.split('.')
+        
+        if is_gov_domain(domain):
+            # 政务类域名：最后四段
+            if len(parts) >= 4:
+                return '.'.join(parts[-4:])
+            return domain
+        else:
+            # 普通域名：最后三段
+            if len(parts) >= 3:
+                return '.'.join(parts[-3:])
+            return domain
+    
+    # 使用说明
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0;">
+            <span style="font-size: 2.5rem;">🥔</span>
+            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="potato-card" style="margin-bottom: 0.8rem;">
+            <div class="potato-card-header">🌱 操作步骤</div>
+            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>上传 <b>Excel文件</b> 📁</li>
+                <li>选择 <b>URL字段</b> 🔗</li>
+                <li>设置 <b>域名类型</b> 🏛️</li>
+                <li>设置 <b>提取类型</b> 🎯</li>
+                <li>点击 <b>开始提取</b> 🚀</li>
+                <li>下载 <b>结果文件</b> 📥</li>
+            </ol>
+        </div>
+        
+        <div class="potato-card">
+            <div class="potato-card-header">💡 域名类型说明</div>
+            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li><b>政务类域名：</b>.gov.cn结尾的政务网站</li>
+                <li><b>普通域名：</b>商业/个人网站等</li>
+            </ul>
+        </div>
+        
+        <div class="potato-card" style="margin-top: 0.8rem;">
+            <div class="potato-card-header">💡 提取类型说明</div>
+            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li><b>主域名：</b>网站核心域名</li>
+                <li><b>子域名：</b>包含部门/子站的域名</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem;">
+            <span style="font-size: 2rem;">🥔 🌿</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("🥔 域名提取器")
+    
+    # 文件上传区域
+    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel文件</div></div>', unsafe_allow_html=True)
+    
+    file = st.file_uploader(
+        "点击上传或拖拽Excel文件到此处",
+        type=['xlsx', 'xls'],
+        help="🥔 上传包含URL的Excel文件",
+        key="domain_file_uploader"
+    )
+    
+    if file:
+        with st.spinner("🥔 加载中..."):
+            df = load_excel_file(file)
+            if df is not None:
+                st.session_state.domain_df = df
+                st.session_state.domain_result = None
+                st.markdown("""
+                <div class="success-cute">✅ 文件加载成功</div>
+                """, unsafe_allow_html=True)
+                
+                # 显示文件信息
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
+                
+                info_col1, info_col2, info_col3 = st.columns(3)
+                
+                with info_col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📝 总行数</div>
+                        <div class="metric-value">{len(df):,}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📊 总列数</div>
+                        <div class="metric-value">{len(df.columns)}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col3:
+                    file_size_mb = file.size / (1024 * 1024)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">💾 文件大小</div>
+                        <div class="metric-value">{file_size_mb:.2f} MB</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # 显示所有字段
+                st.markdown("**📋 可用字段：**")
+                fields_display = "、".join([f"`{col}`" for col in df.columns])
+                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
+                
+                # 数据预览
+                with st.expander("👁️ 预览数据（前20行）"):
+                    st.dataframe(df.head(20), use_container_width=True, height=300)
+    
+    # 提取配置
+    if st.session_state.domain_df is not None:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 提取配置</div></div>', unsafe_allow_html=True)
+        
+        config_col1, config_col2, config_col3 = st.columns(3)
+        
+        with config_col1:
+            url_field = st.selectbox(
+                "🔗 选择URL字段",
+                options=["（请选择）"] + list(st.session_state.domain_df.columns),
+                index=0,
+                help="选择包含URL的列"
+            )
+            if url_field == "（请选择）":
+                url_field = None
+        
+        with config_col2:
+            domain_type = st.radio(
+                "🏛️ 域名类型",
+                options=["政务类域名", "普通域名"],
+                horizontal=True,
+                help="选择URL所属的域名类型"
+            )
+        
+        with config_col3:
+            extract_type = st.radio(
+                "🎯 提取类型",
+                options=["主域名", "子域名"],
+                horizontal=True,
+                help="选择要提取的域名类型"
+            )
+        
+        # 字段预览
+        if url_field:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown(f"**🥔 `{url_field}` 字段预览**")
+            
+            preview_df = st.session_state.domain_df[url_field].dropna().head(10)
+            st.write(preview_df.tolist())
+            
+            # 统计空值
+            null_count = st.session_state.domain_df[url_field].isnull().sum()
+            st.caption(f"📊 共 {len(st.session_state.domain_df):,} 条记录，空值 {null_count:,} 条")
+        
+        # 执行提取按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        
+        with col_btn2:
+            if st.button("🚀 开始提取", type="primary", use_container_width=True):
+                if not url_field:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请选择包含URL的字段 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                with st.spinner("🍠 正在提取域名..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        start_time = time.time()
+                        
+                        status_text.text("🥔 正在解析URL...")
+                        progress_bar.progress(0.2)
+                        
+                        df = st.session_state.domain_df.copy()
+                        
+                        # 提取域名
+                        status_text.text("🥔 正在提取域名...")
+                        progress_bar.progress(0.4)
+                        
+                        # 先提取完整域名
+                        domains = df[url_field].apply(extract_domain_from_url)
+                        
+                        progress_bar.progress(0.6)
+                        status_text.text("🥔 正在处理域名...")
+                        
+                        # 根据配置提取目标域名
+                        if domain_type == "政务类域名":
+                            if extract_type == "主域名":
+                                result_domains = domains.apply(get_main_domain)
+                                new_col_name = "提取主域名(政务)"
+                            else:
+                                result_domains = domains.apply(get_subdomain)
+                                new_col_name = "提取子域名(政务)"
+                        else:
+                            if extract_type == "主域名":
+                                result_domains = domains.apply(get_main_domain)
+                                new_col_name = "提取主域名"
+                            else:
+                                result_domains = domains.apply(get_subdomain)
+                                new_col_name = "提取子域名"
+                        
+                        progress_bar.progress(0.8)
+                        status_text.text("🍠 正在整理结果...")
+                        
+                        # 添加新列
+                        df[new_col_name] = result_domains
+                        
+                        progress_bar.progress(1.0)
+                        status_text.empty()
+                        progress_bar.empty()
+                        
+                        processing_time = time.time() - start_time
+                        
+                        # 统计结果
+                        success_count = result_domains.notna().sum()
+                        fail_count = result_domains.isna().sum()
+                        
+                        st.session_state.domain_result = {
+                            'result_df': df,
+                            'success_count': success_count,
+                            'fail_count': fail_count,
+                            'total_count': len(df),
+                            'new_col_name': new_col_name,
+                            'processing_time': processing_time,
+                            'domain_type': domain_type,
+                            'extract_type': extract_type
+                        }
+                        
+                        # 显示成功消息
+                        st.markdown("""
+                        <div class="success-cute" style="margin-top: 1rem;">
+                            🎉 域名提取完成！可以下载结果文件了 🥔🎉
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.markdown(f"""
+                        <div class="error-cute">
+                            ❌ 提取失败：{str(e)} 🥔
+                        </div>
+                        """, unsafe_allow_html=True)
+    
+    # 显示提取结果
+    if st.session_state.domain_result:
+        result = st.session_state.domain_result
+        result_df = result['result_df']
+        
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 提取结果统计</div></div>', unsafe_allow_html=True)
+        
+        # 统计卡片
+        result_col1, result_col2, result_col3, result_col4, result_col5 = st.columns(5)
+        
+        with result_col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 总行数</div>
+                <div class="metric-value">{result['total_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">✅ 提取成功</div>
+                <div class="metric-value" style="color: #228B22;">{result['success_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">❌ 提取失败</div>
+                <div class="metric-value" style="color: #FF6347;">{result['fail_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col4:
+            success_rate = (result['success_count'] / result['total_count'] * 100) if result['total_count'] > 0 else 0
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📊 成功率</div>
+                <div class="metric-value">{success_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with result_col5:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">⏱️ 处理时间</div>
+                <div class="metric-value">{result['processing_time']:.2f}s</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 提取效果提示
+        if success_rate >= 95:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                🎉 太棒了！提取成功率 <strong>{success_rate:.1f}%</strong> 🥔🎉
+            </div>
+            """, unsafe_allow_html=True)
+        elif success_rate >= 80:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                😊 不错的效果！提取成功率 <strong>{success_rate:.1f}%</strong> 🍠
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 提取成功率 <strong>{success_rate:.1f}%</strong>，请检查URL格式是否正确 🥔
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 显示提取配置
+        st.markdown(f"""
+        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 12px; margin-top: 0.5rem;">
+            <div style="color: #8B4513; font-size: 0.9rem;">
+                <b>⚙️ 提取配置：</b>
+                域名类型：<code>{result['domain_type']}</code> | 
+                提取类型：<code>{result['extract_type']}</code> | 
+                新增列：<code>{result['new_col_name']}</code>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 结果预览
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
+        
+        # 显示新增列
+        preview_cols = [col for col in result_df.columns if col != result['new_col_name']][:3] + [result['new_col_name']]
+        preview_cols = [col for col in preview_cols if col in result_df.columns]
+        
+        # 预览前50行
+        preview_rows = min(50, len(result_df))
+        st.dataframe(result_df.head(preview_rows), use_container_width=True, height=350)
+        
+        st.caption(f"显示前 {preview_rows} 行，共 {len(result_df):,} 行 | 结果列：<code>{result['new_col_name']}</code>")
+        
+        # 下载按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
+        
+        excel_bytes = excel_to_bytes(result_df, "域名提取结果.xlsx")
+        
+        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
+        
+        with download_col1:
+            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
+        
+        with download_col2:
+            st.download_button(
+                label="📥 下载提取结果Excel",
+                data=excel_bytes,
+                file_name=f"域名提取结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        
+        with download_col3:
+            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
+            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 底部
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="footer">
+        <p>Made with 🥔 by 洋芋头</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================
 # 主应用入口
 # ============================================
 def main():
@@ -1811,7 +2353,7 @@ def main():
         st.divider()
         
         # 工具选项列表
-        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器"]
+        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器"]
         
         # 初始化或读取当前页面
         if 'page' not in st.session_state:
@@ -1839,7 +2381,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.1 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.2 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1852,6 +2394,8 @@ def main():
         show_split_tool()
     elif page == "🔗 数据聚合器":
         show_aggregate_tool()
+    elif page == "🌐 域名提取器":
+        show_domain_tool()
 
 
 if __name__ == "__main__":

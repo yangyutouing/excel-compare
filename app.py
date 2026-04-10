@@ -436,7 +436,7 @@ def show_home():
             <div class="tool-title">更多工具...</div>
             <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 土豆正在努力种植新的工具...
+                🥔 洋芋头正在努力种植新的工具ing...
             </p>
         </div>
         """, unsafe_allow_html=True)

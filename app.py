@@ -447,15 +447,11 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-        <div style="margin-top: 1rem; color: #8B4513;">
-            <p style="margin: 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.1</span>
+        
                 当前版本
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>新增数据聚合器功能</li>
-                <li>优化数据比对回填逻辑</li>
-                <li>首页支持点击跳转工具</li>
+                1、新增数据聚合器功能</li>
+                2、优化数据比对回填逻辑</li>
+                3、首页支持点击跳转工具</li>
             </ul>
             
             <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">

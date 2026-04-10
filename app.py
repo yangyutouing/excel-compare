@@ -275,23 +275,56 @@ st.markdown("""
 # ============================================
 # 通用工具函数
 # ============================================
-def load_excel_file(file) -> pd.DataFrame:
-    """加载Excel文件"""
+def load_csv_file(file) -> pd.DataFrame:
+    """加载CSV文件，自动检测编码"""
+    encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'utf-8-sig']
+    
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(file, encoding=encoding)
+            if len(df.columns) > 0:
+                return df
+        except (UnicodeDecodeError, Exception):
+            file.seek(0)
+            continue
+    
+    # 如果所有编码都失败，尝试用 errors='replace'
+    file.seek(0)
     try:
-        excel_file = pd.ExcelFile(file)
-        sheet_names = excel_file.sheet_names
-        
-        if len(sheet_names) == 1:
-            df = pd.read_excel(file, engine='openpyxl')
-        else:
-            st.info(f"🥔 检测到文件包含 {len(sheet_names)} 个工作表: {', '.join(sheet_names)}")
-            selected_sheet = st.selectbox("📋 请选择要使用的工作表", sheet_names)
-            df = pd.read_excel(file, sheet_name=selected_sheet, engine='openpyxl')
-        
-        return df
+        return pd.read_csv(file, encoding='utf-8', errors='replace')
     except Exception as e:
-        st.error(f"❌ 文件加载失败: {str(e)}")
+        st.error(f"❌ CSV文件加载失败: {str(e)}")
         return None
+
+
+def load_data_file(file) -> pd.DataFrame:
+    """统一加载Excel和CSV文件"""
+    file_name = file.name.lower()
+    
+    if file_name.endswith(('.xlsx', '.xls')):
+        return load_excel_file(file)
+    elif file_name.endswith('.csv'):
+        return load_csv_file(file)
+    else:
+        st.error(f"❌ 不支持的文件格式: {file_name}")
+        return None
+
+
+def csv_to_bytes(df: pd.DataFrame, filename: str = "result.csv") -> bytes:
+    """将DataFrame转换为CSV字节流用于下载"""
+    output = StringIO()
+    df.to_csv(output, index=False, encoding='utf-8-sig')
+    output.seek(0)
+    return output.getvalue()
+
+
+def excel_to_bytes(df: pd.DataFrame, filename: str = "result.xlsx") -> bytes:
+    """将DataFrame转换为Excel字节流用于下载"""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='数据')
+    output.seek(0)
+    return output.getvalue()
 
 
 def display_column_preview(df: pd.DataFrame):
@@ -321,15 +354,6 @@ def display_column_preview(df: pd.DataFrame):
             <div class="metric-value">{df.isnull().sum().sum()}</div>
         </div>
         """, unsafe_allow_html=True)
-
-
-def excel_to_bytes(df: pd.DataFrame, filename: str = "result.xlsx") -> bytes:
-    """将DataFrame转换为Excel字节流用于下载"""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='数据')
-    output.seek(0)
-    return output.getvalue()
 
 
 def excel_to_bytes_multi(dfs: list, base_filename: str = "data") -> bytes:
@@ -466,27 +490,37 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-                v2.2当前版本
-                1、新增域名提取器功能</li>
-                2、支持政务类域名和普通域名</li>
-                3、支持提取主域名和子域名
-                
-                v2.1工具箱优化版本
-              
-                1、新增数据聚合器功能
-                2、优化数据比对回填逻辑
-                3、首页支持点击跳转工具
+        <div style="margin-top: 1rem; color: #8B4513;">
+            <p style="margin: 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.2</span>
+                当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增域名提取器功能</li>
+                <li>支持政务类域名和普通域名</li>
+                <li>支持提取主域名和子域名</li>
+            </ul>
             
-                v2.0工具箱版
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #D2691E; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🍠 v2.0</span>
+                工具箱版
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>重构为多工具集架构</li>
+                <li>新增数据拆分器功能</li>
+                <li>土豆主题UI优化</li>
+            </ul>
             
-                1、重构为多工具集架构
-                2、新增数据拆分器功能
-                3、土豆主题UI优化
-            
-                v1.0初始版本
-                1、数据比对回填功能
-                2、可爱土豆风格界面
-
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #8B4513; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v1.0</span>
+                初始版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>数据比对回填功能</li>
+                <li>可爱土豆风格界面</li>
+            </ul>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 底部装饰
@@ -556,20 +590,21 @@ def show_compare_tool():
         <div class="potato-card" style="margin-bottom: 0.8rem;">
             <div class="potato-card-header">🌱 操作步骤</div>
             <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>主表Excel</b> 📁</li>
-                <li>上传 <b>数据源Excel</b> 📁</li>
+                <li>上传 <b>主表</b> 📁（支持 Excel/CSV）</li>
+                <li>上传 <b>数据源</b> 📁（支持 Excel/CSV）</li>
                 <li>选择 <b>匹配字段</b> 🔍</li>
                 <li>选择 <b>回填字段</b> 🔄</li>
                 <li>点击 <b>开始比对</b> 🚀</li>
-                <li>下载 <b>结果文件</b> 📥</li>
+                <li>下载 <b>结果文件</b> 📥（Excel/CSV）</li>
             </ol>
         </div>
         
         <div class="potato-card">
             <div class="potato-card-header">💡 温馨提示</div>
             <ul style="color: #8B4513; line-height: 1.7; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>匹配字段需要有对应关系</li>
-                <li>只会回填存在的记录</li>
+                <li>支持 .xlsx .xls .csv 格式</li>
+                <li>CSV自动检测编码（UTF-8/GBK）</li>
+                <li>大文件使用批量merge加速</li>
                 <li>原始数据不会被修改</li>
             </ul>
         </div>
@@ -591,16 +626,25 @@ def show_compare_tool():
         
         file1 = st.file_uploader(
             "点击上传或拖拽文件到此处",
-            type=['xlsx', 'xls'],
-            help="🥔 主表将作为输出文件的基础",
+            type=['xlsx', 'xls', 'csv'],
+            help="🥔 主表将作为输出文件的基础（支持 .xlsx .xls .csv）",
             key="file_uploader_1"
         )
         
         if file1:
             with st.spinner("🥔 加载中..."):
-                df1 = load_excel_file(file1)
+                df1 = load_data_file(file1)
                 if df1 is not None:
                     st.session_state.df1 = df1
+                    # 显示文件信息
+                    file_size_mb = file1.size / (1024 * 1024)
+                    st.markdown(f"""
+                    <div style="background: #E8F5E9; padding: 0.5rem 1rem; border-radius: 8px; margin: 0.5rem 0;">
+                        <span style="color: #2E7D32; font-size: 0.85rem;">
+                            📄 {file1.name} ({file_size_mb:.2f} MB) | 📝 {len(df1):,} 行 × {len(df1.columns)} 列
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
                     st.markdown("""
                     <div class="success-cute">✅ 已加载主表文件</div>
                     """, unsafe_allow_html=True)
@@ -611,16 +655,25 @@ def show_compare_tool():
         
         file2 = st.file_uploader(
             "点击上传或拖拽文件到此处",
-            type=['xlsx', 'xls'],
-            help="🍠 数据源提供要回填的数据",
+            type=['xlsx', 'xls', 'csv'],
+            help="🍠 数据源提供要回填的数据（支持 .xlsx .xls .csv）",
             key="file_uploader_2"
         )
         
         if file2:
             with st.spinner("🍠 加载中..."):
-                df2 = load_excel_file(file2)
+                df2 = load_data_file(file2)
                 if df2 is not None:
                     st.session_state.df2 = df2
+                    # 显示文件信息
+                    file_size_mb = file2.size / (1024 * 1024)
+                    st.markdown(f"""
+                    <div style="background: #E8F5E9; padding: 0.5rem 1rem; border-radius: 8px; margin: 0.5rem 0;">
+                        <span style="color: #2E7D32; font-size: 0.85rem;">
+                            📄 {file2.name} ({file_size_mb:.2f} MB) | 📝 {len(df2):,} 行 × {len(df2.columns)} 列
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
                     st.markdown("""
                     <div class="success-cute">✅ 已加载数据源文件</div>
                     """, unsafe_allow_html=True)
@@ -759,6 +812,23 @@ def show_compare_tool():
         # 执行按钮
         st.markdown("<hr>", unsafe_allow_html=True)
         
+        # 大文件警告
+        total_rows = len(st.session_state.df1) + len(st.session_state.df2)
+        is_large_file = total_rows > 100000
+        
+        if is_large_file:
+            st.markdown(f"""
+            <div style="background: #FFF3E0; padding: 1rem; border-radius: 12px; margin-bottom: 1rem; border-left: 4px solid #FF9800;">
+                <div style="color: #E65100; font-weight: 600; margin-bottom: 0.3rem;">
+                    ⚠️ 大文件检测到
+                </div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    当前数据量：<b>{len(st.session_state.df1):,} 行</b>（主表）+ <b>{len(st.session_state.df2):,} 行</b>（数据源）
+                    <br>已启用 <b>批量merge算法</b> 进行优化处理，预计耗时较短 🥔
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
         col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
         
         with col_btn2:
@@ -779,12 +849,30 @@ def show_compare_tool():
                     """, unsafe_allow_html=True)
                     return
                 
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                # 创建进度显示区域
+                progress_container = st.container()
+                with progress_container:
+                    progress_col1, progress_col2 = st.columns([3, 1])
+                    with progress_col1:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                    with progress_col2:
+                        time_estimate = st.empty()
+                    
+                    info_text = st.empty()
                 
-                def update_progress(progress):
+                def update_progress(progress, stage=""):
                     progress_bar.progress(progress)
-                    status_text.text(f"🥔 处理中... {int(progress * 100)}%")
+                    status_text.text(f"🥔 {stage} {int(progress * 100)}%")
+                    # 简单的时间估算
+                    if progress > 0:
+                        elapsed = time.time() - update_progress.start_time if hasattr(update_progress, 'start_time') else 0
+                        if elapsed > 0 and progress < 1:
+                            estimated_total = elapsed / progress
+                            remaining = estimated_total - elapsed
+                            time_estimate.text(f"预计剩余: {int(remaining)}s")
+                
+                update_progress.start_time = time.time()
                 
                 with st.spinner("🍠 处理数据..."):
                     result_df, stats = compare_and_fill(
@@ -796,8 +884,8 @@ def show_compare_tool():
                         update_progress
                     )
                 
-                progress_bar.empty()
-                status_text.empty()
+                # 清理进度显示
+                progress_container.empty()
                 
                 st.session_state.result_df = result_df
                 st.session_state.stats = stats
@@ -887,6 +975,15 @@ def show_compare_tool():
                 st.markdown("<hr>", unsafe_allow_html=True)
                 
                 excel_bytes = excel_to_bytes(result_df, "比对结果.xlsx")
+                csv_bytes = csv_to_bytes(result_df, "比对结果.csv")
+                
+                # 添加导出格式选择
+                export_format = st.radio(
+                    "📥 选择导出格式",
+                    options=["Excel (.xlsx)", "CSV (.csv)"],
+                    horizontal=True,
+                    help="选择下载文件的格式"
+                )
                 
                 download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
                 
@@ -894,14 +991,24 @@ def show_compare_tool():
                     st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
                 
                 with download_col2:
-                    st.download_button(
-                        label="📥 下载结果Excel",
-                        data=excel_bytes,
-                        file_name="Excel比对结果.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary",
-                        use_container_width=True
-                    )
+                    if export_format == "Excel (.xlsx)":
+                        st.download_button(
+                            label="📥 下载结果Excel",
+                            data=excel_bytes,
+                            file_name="比对结果.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary",
+                            use_container_width=True
+                        )
+                    else:
+                        st.download_button(
+                            label="📥 下载结果CSV",
+                            data=csv_bytes,
+                            file_name="比对结果.csv",
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True
+                        )
                 
                 with download_col3:
                     st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
@@ -931,11 +1038,8 @@ def compare_and_fill(
     fill_cols: list,
     progress_callback=None
 ) -> tuple[pd.DataFrame, dict]:
-    """执行数据比对，结果包含主表所有字段 + 选中的回填字段（带_来源后缀）"""
+    """执行数据比对，使用 pandas merge 批量处理，结果包含主表所有字段 + 选中的回填字段（带_来源后缀）"""
     start_time = time.time()
-    
-    # 复制主表作为结果基础
-    result_df = df1.copy()
     
     stats = {
         "total_rows": len(df1),
@@ -948,11 +1052,11 @@ def compare_and_fill(
     
     if match_col1 not in df1.columns:
         stats["errors"].append(f"主表缺少匹配字段: {match_col1}")
-        return result_df, stats
+        return df1.copy(), stats
     
     if match_col2 not in df2.columns:
         stats["errors"].append(f"数据源缺少匹配字段: {match_col2}")
-        return result_df, stats
+        return df1.copy(), stats
     
     # 过滤掉无效的回填字段
     valid_fill_cols = [col for col in fill_cols if col in df2.columns]
@@ -962,47 +1066,69 @@ def compare_and_fill(
     
     if not valid_fill_cols:
         stats["errors"].append("没有有效的回填字段")
-        return result_df, stats
+        return df1.copy(), stats
     
-    # 为回填字段创建新列名（带_来源后缀）
-    new_col_names = []
+    # 更新进度：开始处理
+    if progress_callback:
+        progress_callback(0.2)
+    
+    # 准备数据源列（匹配列 + 回填列）
+    source_cols = [match_col2] + valid_fill_cols
+    df2_selected = df2[source_cols].copy()
+    
+    # 重命名数据源中的列，准备合并
+    col_mapping = {match_col2: match_col1}  # 匹配列重命名
+    renamed_fill_cols = []
+    
     for col in valid_fill_cols:
+        # 创建新列名（带_来源后缀）
         new_col = f"{col}_来源"
         # 确保新名称不与主表字段冲突
         counter = 1
-        while new_col in result_df.columns:
+        while new_col in df1.columns:
             new_col = f"{col}_来源{counter}"
             counter += 1
-        new_col_names.append((col, new_col))
-        result_df[new_col] = None  # 预先创建空列
+        
+        col_mapping[col] = new_col
+        renamed_fill_cols.append(new_col)
         stats["source_cols_added"].append(new_col)
     
-    # 构建数据源字典
-    source_dict = {}
-    for idx, row in df2.iterrows():
-        key = row[match_col2]
-        if pd.notna(key):
-            source_dict[key] = {orig_col: row[orig_col] for orig_col, _ in new_col_names}
+    # 重命名数据源列
+    df2_renamed = df2_selected.rename(columns=col_mapping)
     
-    # 执行合并
-    total = len(result_df)
-    for idx, (result_idx, row) in enumerate(result_df.iterrows()):
-        match_value = row[match_col1]
-        
-        if pd.notna(match_value) and match_value in source_dict:
-            stats["matched_rows"] += 1
-            for orig_col, new_col in new_col_names:
-                source_value = source_dict[match_value][orig_col]
-                if pd.notna(source_value):
-                    result_df.at[result_idx, new_col] = source_value
-                    stats["filled_cells"] += 1
-        else:
-            stats["unmatched_rows"] += 1
-        
-        if progress_callback and idx % 100 == 0:
-            progress = (idx + 1) / total
-            progress_callback(progress)
+    # 更新进度：准备合并
+    if progress_callback:
+        progress_callback(0.4)
     
+    # 使用 pandas merge 批量处理
+    # left join 确保主表所有行都保留
+    result_df = df1.merge(
+        df2_renamed,
+        on=match_col1,
+        how='left',
+        suffixes=('', '')
+    )
+    
+    # 更新进度：合并完成
+    if progress_callback:
+        progress_callback(0.7)
+    
+    # 统计信息
+    # 匹配成功的行：在任意一个回填列中非空的行
+    if renamed_fill_cols:
+        # 检查是否有非空值
+        is_matched = result_df[renamed_fill_cols].notna().any(axis=1)
+        stats["matched_rows"] = int(is_matched.sum())
+        stats["unmatched_rows"] = int((~is_matched).sum())
+        
+        # 统计回填的单元格数量
+        stats["filled_cells"] = int(result_df[renamed_fill_cols].notna().sum().sum())
+    else:
+        stats["matched_rows"] = 0
+        stats["unmatched_rows"] = len(result_df)
+        stats["filled_cells"] = 0
+    
+    # 更新进度：完成
     if progress_callback:
         progress_callback(1.0)
     

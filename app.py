@@ -14,6 +14,8 @@ import time
 import os
 import zipfile
 from datetime import datetime
+import re
+from urllib.parse import urlparse
 
 # 页面配置 - 土豆主题
 st.set_page_config(
@@ -490,6 +492,131 @@ def aggregate_ips_mixed(ip_list: list) -> str:
     ranges = aggregate_ips_continuous(ip_list)
     return ', '.join(ranges)
 
+# ============================================
+# 域名提取工具函数
+# ============================================
+def extract_domain(url: str, extract_main_domain: bool = True) -> str:
+    """从URL中提取域名
+    
+    Args:
+        url: 网址字符串
+        extract_main_domain: 是否提取主域名（True）或子域名（False）
+    
+    Returns:
+        提取的域名，失败返回空字符串
+    """
+    if pd.isna(url) or not str(url).strip():
+        return ""
+    
+    url = str(url).strip()
+    
+    # 处理没有http/https的URL
+    if not url.startswith(('http://', 'https://')):
+        url = 'http://' + url
+    
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        
+        # 移除端口号
+        if ':' in domain:
+            domain = domain.split(':')[0]
+        
+        # 处理政务域名特殊情况
+        if extract_main_domain:
+            # 提取主域名（保留二级域名）
+            parts = domain.split('.')
+            if len(parts) >= 2:
+                # 政务域名处理
+                if len(parts) >= 3 and parts[-2] in ['gov', 'cn', 'com']:
+                    if parts[-3] in ['gov', 'cn']:
+                        return '.'.join(parts[-3:])
+                return '.'.join(parts[-2:])
+            return domain
+        else:
+            # 返回完整子域名
+            return domain
+    except Exception as e:
+        # 备用正则提取
+        match = re.search(r'(?:https?://)?([^/:]+)', url)
+        if match:
+            return match.group(1)
+        return ""
+
+# ============================================
+# 单位树构建工具函数
+# ============================================
+def build_unit_tree(df, unit_col, code_col=None, region_col=None):
+    """构建单位树结构"""
+    unit_tree = {}
+    
+    # 清理单位名称
+    def clean_unit_name(name):
+        if pd.isna(name):
+            return ""
+        name = str(name).strip()
+        # 移除常见后缀
+        suffixes = ['有限公司', '有限责任公司', '股份有限公司', '分公司', '办事处', '营业部', '支行']
+        for suffix in suffixes:
+            if name.endswith(suffix):
+                name = name[:-len(suffix)]
+        return name
+    
+    df['clean_unit_name'] = df[unit_col].apply(clean_unit_name)
+    
+    # 按区域分组（如果有区域字段）
+    if region_col and region_col in df.columns:
+        regions = df[region_col].dropna().unique()
+        for region in regions:
+            region_df = df[df[region_col] == region]
+            unit_tree[region] = {}
+            
+            # 提取单位关键词
+            for idx, row in region_df.iterrows():
+                unit_name = row['clean_unit_name']
+                unit_code = row[code_col] if code_col else idx
+                
+                # 简单的层级判定
+                if '省' in unit_name or '市' in unit_name:
+                    level = '省级'
+                elif '区' in unit_name or '县' in unit_name:
+                    level = '市级/区级'
+                elif '街道' in unit_name or '镇' in unit_name:
+                    level = '街道/镇级'
+                else:
+                    level = '其他'
+                
+                unit_tree[region][unit_code] = {
+                    'name': row[unit_col],
+                    'clean_name': unit_name,
+                    'level': level,
+                    'parent': None,
+                    'children': []
+                }
+    else:
+        # 无区域分组
+        for idx, row in df.iterrows():
+            unit_name = row['clean_unit_name']
+            unit_code = row[code_col] if code_col else idx
+            
+            if '省' in unit_name or '市' in unit_name:
+                level = '省级'
+            elif '区' in unit_name or '县' in unit_name:
+                level = '市级/区级'
+            elif '街道' in unit_name or '镇' in unit_name:
+                level = '街道/镇级'
+            else:
+                level = '其他'
+            
+            unit_tree[unit_code] = {
+                'name': row[unit_col],
+                'clean_name': unit_name,
+                'level': level,
+                'parent': None,
+                'children': []
+            }
+    
+    return unit_tree
 
 # ============================================
 # 页面1：首页
@@ -621,6 +748,8 @@ def show_home():
             st.session_state.page = "🖥️ IP处理工具"
             st.rerun()
     
+    # 更多工具占位
+    col7 = st.columns(1)[0]
     with col7:
         st.markdown("""
        <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
@@ -994,319 +1123,153 @@ def show_compare_tool():
                     ⚠️ 大文件检测到
                 </div>
                 <div style="color: #8B4513; font-size: 0.9rem;">
-                    当前数据量：<b>{len(st.session_state.df1):,} 行</b>（主表）+ <b>{len(st.session_state.df2):,} 行</b>（数据源）
-                    <br>已启用 <b>批量merge算法</b> 进行优化处理，预计耗时较短 🥔
+                    检测到文件总行数超过10万行（{total_rows:,}行），比对可能需要较长时间，请耐心等待...
                 </div>
             </div>
             """, unsafe_allow_html=True)
         
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        # 执行比对
+        col_execute, col_clear = st.columns([1, 4])
         
-        with col_btn2:
-            if st.button("🚀 开始比对与回填", type="primary", use_container_width=True):
-                if not match_col1:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择主表匹配字段 🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
-                if not match_col2:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择数据源匹配字段 🍠</div>
-                    """, unsafe_allow_html=True)
-                    return
-                if not fill_cols:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请至少选择一个回填字段 ✨</div>
-                    """, unsafe_allow_html=True)
-                    return
-                
-                # 创建进度显示区域
-                progress_container = st.container()
-                with progress_container:
-                    progress_col1, progress_col2 = st.columns([3, 1])
-                    with progress_col1:
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                    with progress_col2:
-                        time_estimate = st.empty()
+        with col_execute:
+            execute_btn = st.button(
+                "🚀 开始比对回填",
+                use_container_width=True,
+                disabled=not (match_col1 and match_col2 and fill_cols)
+            )
+        
+        with col_clear:
+            if st.button("🧹 清空数据", use_container_width=True):
+                st.session_state.df1 = None
+                st.session_state.df2 = None
+                st.session_state.result_df = None
+                st.session_state.stats = None
+                st.rerun()
+        
+        if execute_btn:
+            with st.spinner("🥔 正在比对数据，请稍候..."):
+                try:
+                    # 创建数据副本
+                    df1_copy = st.session_state.df1.copy()
+                    df2_copy = st.session_state.df2.copy()
                     
-                    info_text = st.empty()
-                
-                def update_progress(progress, stage=""):
-                    progress_bar.progress(progress)
-                    status_text.text(f"🥔 {stage} {int(progress * 100)}%")
-                    # 简单的时间估算
-                    if progress > 0:
-                        elapsed = time.time() - update_progress.start_time if hasattr(update_progress, 'start_time') else 0
-                        if elapsed > 0 and progress < 1:
-                            estimated_total = elapsed / progress
-                            remaining = estimated_total - elapsed
-                            time_estimate.text(f"预计剩余: {int(remaining)}s")
-                
-                update_progress.start_time = time.time()
-                
-                with st.spinner("🍠 处理数据..."):
-                    result_df, stats = compare_and_fill(
-                        st.session_state.df1,
-                        st.session_state.df2,
-                        match_col1,
-                        match_col2,
-                        fill_cols,
-                        update_progress
+                    # 清理匹配字段的空值
+                    df1_copy = df1_copy.dropna(subset=[match_col1])
+                    df2_copy = df2_copy.dropna(subset=[match_col2])
+                    
+                    # 确保匹配字段类型一致
+                    df1_copy[match_col1] = df1_copy[match_col1].astype(str)
+                    df2_copy[match_col2] = df2_copy[match_col2].astype(str)
+                    
+                    # 只保留需要的字段
+                    df2_needed = df2_copy[[match_col2] + fill_cols].drop_duplicates(subset=[match_col2])
+                    
+                    # 重命名回填字段
+                    rename_dict = {col: f"{col}_来源" for col in fill_cols}
+                    df2_needed = df2_needed.rename(columns=rename_dict)
+                    df2_needed = df2_needed.rename(columns={match_col2: match_col1})
+                    
+                    # 执行合并
+                    result_df = pd.merge(
+                        df1_copy,
+                        df2_needed,
+                        on=match_col1,
+                        how='left'
                     )
-                
-                # 清理进度显示
-                progress_container.empty()
-                
-                st.session_state.result_df = result_df
-                st.session_state.stats = stats
-                
-                # 统计结果
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 处理结果统计</div></div>', unsafe_allow_html=True)
-                
-                result_col1, result_col2, result_col3, result_col4 = st.columns(4)
-                
-                with result_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{stats['total_rows']:,}</div>
+                    
+                    # 统计信息
+                    total_rows = len(df1_copy)
+                    matched_rows = result_df[result_df[f"{fill_cols[0]}_来源"].notna()].shape[0] if fill_cols else 0
+                    match_rate = (matched_rows / total_rows * 100) if total_rows > 0 else 0
+                    
+                    st.session_state.result_df = result_df
+                    st.session_state.stats = {
+                        'total': total_rows,
+                        'matched': matched_rows,
+                        'match_rate': match_rate,
+                        'fields_added': len(fill_cols)
+                    }
+                    
+                    st.markdown("""
+                    <div class="success-cute">
+                        ✅ 数据比对回填完成！
                     </div>
                     """, unsafe_allow_html=True)
                 
-                with result_col2:
+                except Exception as e:
                     st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">✅ 匹配成功</div>
-                        <div class="metric-value">{stats['matched_rows']:,}</div>
+                    <div class="error-cute">
+                        ❌ 处理失败：{str(e)}
                     </div>
                     """, unsafe_allow_html=True)
-                
-                with result_col3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">❌ 匹配失败</div>
-                        <div class="metric-value">{stats['unmatched_rows']:,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with result_col4:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">✨ 回填单元格</div>
-                        <div class="metric-value">{stats['filled_cells']:,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 匹配结果提示
-                match_rate = (stats['matched_rows'] / stats['total_rows'] * 100) if stats['total_rows'] > 0 else 0
-                
-                if match_rate >= 80:
-                    st.markdown(f"""
-                    <div class="success-cute" style="font-size: 1rem; margin-top: 1rem;">
-                        🎉 太棒了！匹配成功率 <strong>{match_rate:.1f}%</strong> 🥔🎉
-                    </div>
-                    """, unsafe_allow_html=True)
-                elif match_rate >= 50:
-                    st.markdown(f"""
-                    <div class="warning-cute" style="font-size: 1rem; margin-top: 1rem;">
-                        🤔 匹配成功率 <strong>{match_rate:.1f}%</strong>，部分土豆还没找到家 🍠
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div class="warning-cute" style="font-size: 1rem; margin-top: 1rem;">
-                        😅 匹配成功率较低 (<strong>{match_rate:.1f}%</strong>)，请检查匹配字段配置 🥔
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                st.markdown('<div class="potato-decoration" style="margin: 0.8rem 0;">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-                
-                # 新增字段提示
-                if stats.get('source_cols_added'):
-                    added_cols_str = "、".join([f"`{col}`" for col in stats['source_cols_added']])
-                    st.markdown(f"""
-                    <div class="success-cute" style="margin-bottom: 0.5rem;">
-                        📋 已新增数据源字段：{added_cols_str}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 错误信息
-                if stats['errors']:
-                    with st.expander("🐛 查看提示信息"):
-                        for error in stats['errors']:
-                            st.markdown(f"<div class='warning-cute'>💡 {error}</div>", unsafe_allow_html=True)
-                
-                # 结果预览
-                with st.expander("👁️ 预览处理结果"):
-                    st.dataframe(result_df.head(50), use_container_width=True, height=380)
-                
-                # 下载按钮
-                st.markdown("<hr>", unsafe_allow_html=True)
-                
-                excel_bytes = excel_to_bytes(result_df, "比对结果.xlsx")
-                csv_bytes = csv_to_bytes(result_df, "比对结果.csv")
-                
-                # 添加导出格式选择
-                export_format = st.radio(
-                    "📥 选择导出格式",
-                    options=["Excel (.xlsx)", "CSV (.csv)"],
-                    horizontal=True,
-                    help="选择下载文件的格式"
-                )
-                
-                download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-                
-                with download_col1:
-                    st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-                
-                with download_col2:
-                    if export_format == "Excel (.xlsx)":
-                        st.download_button(
-                            label="📥 下载结果Excel",
-                            data=excel_bytes,
-                            file_name="比对结果.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            type="primary",
-                            use_container_width=True
-                        )
-                    else:
-                        st.download_button(
-                            label="📥 下载结果CSV",
-                            data=csv_bytes,
-                            file_name="比对结果.csv",
-                            mime="text/csv",
-                            type="primary",
-                            use_container_width=True
-                        )
-                
-                with download_col3:
-                    st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-                
+        
+        # 显示结果
+        if st.session_state.result_df is not None and st.session_state.stats is not None:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown('<div class="potato-card"><div class="potato-card-header">📊 处理结果</div></div>', unsafe_allow_html=True)
+            
+            # 显示统计信息
+            stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
+            
+            with stats_col1:
                 st.markdown(f"""
-                <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-                    ⏱️ 处理耗时：<strong>{stats['processing_time']:.2f}</strong> 秒 | 
-                    📊 文件：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
+                <div class="metric-card">
+                    <div class="metric-label">📝 总行数</div>
+                    <div class="metric-value">{st.session_state.stats['total']:,}</div>
                 </div>
                 """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def compare_and_fill(
-    df1: pd.DataFrame,
-    df2: pd.DataFrame,
-    match_col1: str,
-    match_col2: str,
-    fill_cols: list,
-    progress_callback=None
-) -> tuple[pd.DataFrame, dict]:
-    """执行数据比对，使用 pandas merge 批量处理，结果包含主表所有字段 + 选中的回填字段（带_来源后缀）"""
-    start_time = time.time()
-    
-    stats = {
-        "total_rows": len(df1),
-        "matched_rows": 0,
-        "filled_cells": 0,
-        "unmatched_rows": 0,
-        "source_cols_added": [],
-        "errors": []
-    }
-    
-    if match_col1 not in df1.columns:
-        stats["errors"].append(f"主表缺少匹配字段: {match_col1}")
-        return df1.copy(), stats
-    
-    if match_col2 not in df2.columns:
-        stats["errors"].append(f"数据源缺少匹配字段: {match_col2}")
-        return df1.copy(), stats
-    
-    # 过滤掉无效的回填字段
-    valid_fill_cols = [col for col in fill_cols if col in df2.columns]
-    if len(valid_fill_cols) != len(fill_cols):
-        invalid = [col for col in fill_cols if col not in df2.columns]
-        stats["errors"].append(f"数据源缺少字段: {', '.join(invalid)}")
-    
-    if not valid_fill_cols:
-        stats["errors"].append("没有有效的回填字段")
-        return df1.copy(), stats
-    
-    # 更新进度：开始处理
-    if progress_callback:
-        progress_callback(0.2)
-    
-    # 准备数据源列（匹配列 + 回填列）
-    source_cols = [match_col2] + valid_fill_cols
-    df2_selected = df2[source_cols].copy()
-    
-    # 重命名数据源中的列，准备合并
-    col_mapping = {match_col2: match_col1}  # 匹配列重命名
-    renamed_fill_cols = []
-    
-    for col in valid_fill_cols:
-        # 创建新列名（带_来源后缀）
-        new_col = f"{col}_来源"
-        # 确保新名称不与主表字段冲突
-        counter = 1
-        while new_col in df1.columns:
-            new_col = f"{col}_来源{counter}"
-            counter += 1
-        
-        col_mapping[col] = new_col
-        renamed_fill_cols.append(new_col)
-        stats["source_cols_added"].append(new_col)
-    
-    # 重命名数据源列
-    df2_renamed = df2_selected.rename(columns=col_mapping)
-    
-    # 更新进度：准备合并
-    if progress_callback:
-        progress_callback(0.4)
-    
-    # 使用 pandas merge 批量处理
-    # left join 确保主表所有行都保留
-    result_df = df1.merge(
-        df2_renamed,
-        on=match_col1,
-        how='left',
-        suffixes=('', '')
-    )
-    
-    # 更新进度：合并完成
-    if progress_callback:
-        progress_callback(0.7)
-    
-    # 统计信息
-    # 匹配成功的行：在任意一个回填列中非空的行
-    if renamed_fill_cols:
-        # 检查是否有非空值
-        is_matched = result_df[renamed_fill_cols].notna().any(axis=1)
-        stats["matched_rows"] = int(is_matched.sum())
-        stats["unmatched_rows"] = int((~is_matched).sum())
-        
-        # 统计回填的单元格数量
-        stats["filled_cells"] = int(result_df[renamed_fill_cols].notna().sum().sum())
-    else:
-        stats["matched_rows"] = 0
-        stats["unmatched_rows"] = len(result_df)
-        stats["filled_cells"] = 0
-    
-    # 更新进度：完成
-    if progress_callback:
-        progress_callback(1.0)
-    
-    stats["processing_time"] = time.time() - start_time
-    
-    return result_df, stats
-
+            
+            with stats_col2:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">✅ 匹配行数</div>
+                    <div class="metric-value">{st.session_state.stats['matched']:,}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with stats_col3:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">📈 匹配率</div>
+                    <div class="metric-value">{st.session_state.stats['match_rate']:.1f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with stats_col4:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">➕ 新增字段</div>
+                    <div class="metric-value">{st.session_state.stats['fields_added']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # 结果预览
+            st.markdown("### 📋 结果预览")
+            st.dataframe(st.session_state.result_df.head(20), use_container_width=True, height=280)
+            
+            # 下载按钮
+            st.markdown("<hr>", unsafe_allow_html=True)
+            col_download_excel, col_download_csv = st.columns(2)
+            
+            with col_download_excel:
+                excel_data = excel_to_bytes(st.session_state.result_df, "数据比对结果.xlsx")
+                st.download_button(
+                    label="📥 下载Excel格式",
+                    data=excel_data,
+                    file_name="数据比对结果.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            
+            with col_download_csv:
+                csv_data = csv_to_bytes(st.session_state.result_df, "数据比对结果.csv")
+                st.download_button(
+                    label="📥 下载CSV格式",
+                    data=csv_data,
+                    file_name="数据比对结果.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
 # ============================================
 # 页面3：数据拆分器
@@ -1322,23 +1285,62 @@ def show_split_tool():
     <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
     """, unsafe_allow_html=True)
     
-    # 使用说明卡片
+    # 使用说明
     st.markdown("""
     <div class="potato-card" style="margin: 1rem 0;">
         <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
             <div style="flex: 1; min-width: 250px;">
                 <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
-                <div style="color: #D2691E; font-size: 0.9rem;">将大型Excel文件按指定条数拆分成多个小文件，适合数据分发和分批处理。</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">将大型Excel/CSV文件按指定行数拆分成多个小文件，便于处理和分发。</div>
             </div>
             <div style="flex: 2; min-width: 300px;">
                 <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
                 <div style="color: #8B4513; font-size: 0.9rem;">
-                    ① 上传Excel文件 → ② 设置拆分条数 → ③ 执行拆分 → ④ 下载压缩包
+                    ① 上传文件 → ② 设置拆分条数 → ③ 执行拆分 → ④ 下载打包文件
                 </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # 侧边栏说明
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0;">
+            <span style="font-size: 2.5rem;">🥔</span>
+            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="potato-card" style="margin-bottom: 0.8rem;">
+            <div class="potato-card-header">🌱 操作步骤</div>
+            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>上传 <b>待拆分文件</b> 📁（Excel/CSV）</li>
+                <li>设置 <b>拆分条数</b> 🔢（每个文件的行数）</li>
+                <li>点击 <b>开始拆分</b> 🚀</li>
+                <li>下载 <b>ZIP打包文件</b> 📥</li>
+            </ol>
+        </div>
+        
+        <div class="potato-card">
+            <div class="potato-card-header">💡 温馨提示</div>
+            <ul style="color: #8B4513; line-height: 1.7; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>支持 .xlsx .xls .csv 格式</li>
+                <li>默认按5000行拆分，可自定义</li>
+                <li>拆分后自动打包为ZIP文件</li>
+                <li>保留原始文件的所有字段</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem;">
+            <span style="font-size: 2rem;">✂️ 🥔</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("🥔 数据拆分器")
     
     # 初始化session state
     if 'split_df' not in st.session_state:
@@ -1346,2997 +1348,160 @@ def show_split_tool():
     if 'split_result' not in st.session_state:
         st.session_state.split_result = None
     
-    # 使用说明
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0;">
-            <span style="font-size: 2.5rem;">🥔</span>
-            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="potato-card" style="margin-bottom: 0.8rem;">
-            <div class="potato-card-header">🌱 操作步骤</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>Excel文件</b> 📁</li>
-                <li>输入 <b>拆分条数</b> 🔢</li>
-                <li>点击 <b>开始拆分</b> ✂️</li>
-                <li>下载 <b>打包文件</b> 📥</li>
-            </ol>
-        </div>
-        
-        <div class="potato-card">
-            <div class="potato-card-header">💡 温馨提示</div>
-            <ul style="color: #8B4513; line-height: 1.7; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>拆分范围：10~100000条</li>
-                <li>支持 .xlsx 和 .xls 格式</li>
-                <li>结果打包成zip下载</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 2rem;">🥔 🌿</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("🥔 数据拆分器")
-    
-    # 文件上传区域
-    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel文件</div></div>', unsafe_allow_html=True)
+    # 文件上传
+    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传待拆分文件</div></div>', unsafe_allow_html=True)
     
     file = st.file_uploader(
-        "点击上传或拖拽Excel文件到此处",
-        type=['xlsx', 'xls'],
-        help="🥔 上传要拆分的Excel文件",
+        "点击上传或拖拽文件到此处",
+        type=['xlsx', 'xls', 'csv'],
+        help="🥔 支持Excel和CSV格式文件",
         key="split_file_uploader"
     )
     
     if file:
-        with st.spinner("🥔 加载中..."):
+        with st.spinner("🥔 加载文件中..."):
             df = load_data_file(file)
             if df is not None:
                 st.session_state.split_df = df
-                st.session_state.split_result = None
-                st.markdown("""
-                <div class="success-cute">✅ 文件加载成功</div>
-                """, unsafe_allow_html=True)
                 
                 # 显示文件信息
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
-                
-                info_col1, info_col2, info_col3 = st.columns(3)
-                
-                with info_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{len(df):,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📊 总列数</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col3:
-                    file_size_mb = file.size / (1024 * 1024)
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">💾 文件大小</div>
-                        <div class="metric-value">{file_size_mb:.2f} MB</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 数据预览
-                with st.expander("👁️ 预览数据（前20行）"):
-                    st.dataframe(df.head(20), use_container_width=True, height=300)
-    
-    # 拆分配置
-    if st.session_state.split_df is not None:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 拆分配置</div></div>', unsafe_allow_html=True)
-        
-        config_col1, config_col2 = st.columns([1, 2])
-        
-        with config_col1:
-            split_count = st.number_input(
-                "📏 每份条数",
-                min_value=10,
-                max_value=100000,
-                value=1000,
-                step=100,
-                help="每份文件的行数（10~100000）"
-            )
-        
-        # 计算拆分结果
-        total_rows = len(st.session_state.split_df)
-        file_count = (total_rows + split_count - 1) // split_count
-        
-        with config_col2:
-            st.markdown(f"""
-            <div class="potato-card" style="margin-top: 0.5rem;">
-                <div style="display: flex; justify-content: space-around; text-align: center;">
-                    <div>
-                        <div style="font-size: 0.9rem; color: #8B4513;">📝 原始数据</div>
-                        <div style="font-size: 1.3rem; font-weight: 700; color: #D2691E;">{total_rows:,} 条</div>
-                    </div>
-                    <div style="color: #8B4513; font-size: 1.5rem;">→</div>
-                    <div>
-                        <div style="font-size: 0.9rem; color: #8B4513;">📁 拆分后</div>
-                        <div style="font-size: 1.3rem; font-weight: 700; color: #D2691E;">{file_count} 个文件</div>
-                    </div>
-                    <div style="color: #8B4513; font-size: 1.5rem;">≈</div>
-                    <div>
-                        <div style="font-size: 0.9rem; color: #8B4513;">📏 每份约</div>
-                        <div style="font-size: 1.3rem; font-weight: 700; color: #D2691E;">~{split_count:,} 条</div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 预估拆分详情
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        preview_col1, preview_col2 = st.columns(2)
-        
-        with preview_col1:
-            st.markdown("**🥔 拆分预估**")
-            st.markdown(f"""
-            <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; color: #8B4513;">
-                <p style="margin: 0.3rem 0;">• 预计生成 <strong>{file_count}</strong> 个Excel文件</p>
-                <p style="margin: 0.3rem 0;">• 第1个文件：1 ~ {min(split_count, total_rows)} 条</p>
-                <p style="margin: 0.3rem 0;">• 最后文件：{(file_count-1)*split_count + 1} ~ {total_rows} 条</p>
-                <p style="margin: 0.3rem 0;">• 文件名格式：<code>data_0001.xlsx</code></p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with preview_col2:
-            st.markdown("**🍠 提示**")
-            st.markdown("""
-            <div style="background: #FFE4C4; padding: 1rem; border-radius: 12px; color: #8B4513;">
-                <p style="margin: 0.3rem 0;">💡 数据将被保存为zip压缩包</p>
-                <p style="margin: 0.3rem 0;">💡 每个Excel文件包含表头</p>
-                <p style="margin: 0.3rem 0;">💡 建议拆分条数不要过大</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 执行拆分按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        
-        with col_btn2:
-            if st.button("✂️ 开始拆分", type="primary", use_container_width=True):
-                with st.spinner("🍠 正在拆分数据..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    # 执行拆分
-                    start_time = time.time()
-                    split_dfs = []
-                    total = len(st.session_state.split_df)
-                    
-                    for i in range(0, total, split_count):
-                        chunk_df = st.session_state.split_df.iloc[i:i + split_count]
-                        split_dfs.append(chunk_df)
-                        
-                        progress = min((i + split_count) / total, 1.0)
-                        progress_bar.progress(progress)
-                        status_text.text(f"🥔 拆分中... {int(progress * 100)}%")
-                    
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    # 生成zip文件
-                    status_text = st.empty()
-                    status_text.text("🍠 正在打包文件...")
-                    
-                    zip_bytes = excel_to_bytes_multi(split_dfs, "data")
-                    
-                    status_text.empty()
-                    processing_time = time.time() - start_time
-                    
-                    st.session_state.split_result = {
-                        'zip_bytes': zip_bytes,
-                        'file_count': len(split_dfs),
-                        'total_rows': total,
-                        'split_count': split_count,
-                        'processing_time': processing_time
-                    }
-                    
-                    # 显示成功消息
-                    st.markdown("""
-                    <div class="success-cute" style="margin-top: 1rem;">
-                        🎉 拆分完成！可以下载打包文件了 🥔🎉
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        # 显示下载区域
-        if st.session_state.split_result:
-            result = st.session_state.split_result
-            
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
-            
-            # 统计信息
-            result_col1, result_col2, result_col3, result_col4 = st.columns(4)
-            
-            with result_col1:
+                file_size_mb = file.size / (1024 * 1024)
                 st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">📁 文件数量</div>
-                    <div class="metric-value">{result['file_count']}</div>
+                <div style="background: #E8F5E9; padding: 0.5rem 1rem; border-radius: 8px; margin: 0.5rem 0;">
+                    <span style="color: #2E7D32; font-size: 0.85rem;">
+                        📄 {file.name} ({file_size_mb:.2f} MB) | 📝 {len(df):,} 行 × {len(df.columns)} 列
+                    </span>
                 </div>
-                """, unsafe_allow_html=True)
-            
-            with result_col2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">📝 总行数</div>
-                    <div class="metric-value">{result['total_rows']:,}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with result_col3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">📏 每份条数</div>
-                    <div class="metric-value">{result['split_count']:,}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with result_col4:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-label">⏱️ 处理耗时</div>
-                    <div class="metric-value">{result['processing_time']:.2f}s</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # 下载按钮
-            download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-            
-            with download_col1:
-                st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-            
-            with download_col2:
-                st.download_button(
-                    label="📥 下载ZIP打包文件",
-                    data=result['zip_bytes'],
-                    file_name=f"拆分数据_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                    mime="application/zip",
-                    type="primary",
-                    use_container_width=True
-                )
-            
-            with download_col3:
-                st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-            
-            # 文件大小提示
-            zip_size_mb = len(result['zip_bytes']) / (1024 * 1024)
-            st.markdown(f"""
-            <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-                📦 打包文件大小：<strong>{zip_size_mb:.2f}</strong> MB
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================
-# 页面4：数据聚合器
-# ============================================
-def show_aggregate_tool():
-    """显示数据聚合器工具"""
-    st.markdown("""
-    <div class="potato-header">
-        <h1 class="potato-title">🔗 数据聚合器</h1>
-        <p class="potato-subtitle">✨ 将相同数据的行合并，让内容聚合更高效 ✨</p>
-    </div>
-    
-    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
-    """, unsafe_allow_html=True)
-    
-    # 使用说明卡片
-    st.markdown("""
-    <div class="potato-card" style="margin: 1rem 0;">
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
-            <div style="flex: 1; min-width: 250px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
-                <div style="color: #D2691E; font-size: 0.9rem;">将相同数据的行合并，让内容聚合更高效，适合数据汇总和去重场景。</div>
-            </div>
-            <div style="flex: 2; min-width: 300px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
-                <div style="color: #8B4513; font-size: 0.9rem;">
-                    ① 上传Excel文件 → ② 选择聚合字段 → ③ 选择待合并字段 → ④ 设置分隔符 → ⑤ 执行聚合
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 初始化session state
-    if 'agg_df' not in st.session_state:
-        st.session_state.agg_df = None
-    if 'agg_result' not in st.session_state:
-        st.session_state.agg_result = None
-    
-    # 使用说明
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0;">
-            <span style="font-size: 2.5rem;">🥔</span>
-            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="potato-card" style="margin-bottom: 0.8rem;">
-            <div class="potato-card-header">🌱 操作步骤</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>Excel文件</b> 📁</li>
-                <li>选择 <b>聚合字段</b> 🔑</li>
-                <li>选择 <b>待合并字段</b> 📝</li>
-                <li>设置 <b>分隔符</b> ✂️</li>
-                <li>点击 <b>开始聚合</b> 🚀</li>
-                <li>下载 <b>结果文件</b> 📥</li>
-            </ol>
-        </div>
-        
-        <div class="potato-card">
-            <div class="potato-card-header">💡 示例说明</div>
-            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li><b>聚合字段：</b>决定哪些行需要合并</li>
-                <li><b>待合并字段：</b>内容会被连接起来</li>
-                <li><b>分隔符：</b>连接时的分隔符号</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 2rem;">🥔 🌿</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("🥔 数据聚合器")
-    
-    # 文件上传区域
-    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel文件</div></div>', unsafe_allow_html=True)
-    
-    file = st.file_uploader(
-        "点击上传或拖拽Excel文件到此处",
-        type=['xlsx', 'xls'],
-        help="🥔 上传要聚合的Excel文件",
-        key="agg_file_uploader"
-    )
-    
-    if file:
-        with st.spinner("🥔 加载中..."):
-            df = load_data_file(file)
-            if df is not None:
-                st.session_state.agg_df = df
-                st.session_state.agg_result = None
-                st.markdown("""
-                <div class="success-cute">✅ 文件加载成功</div>
                 """, unsafe_allow_html=True)
                 
-                # 显示文件信息
+                # 显示数据预览
+                st.markdown("### 📋 数据预览")
+                st.dataframe(df.head(10), use_container_width=True, height=200)
+                
+                # 拆分设置
                 st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
+                st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 拆分设置</div></div>', unsafe_allow_html=True)
                 
-                info_col1, info_col2, info_col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
                 
-                with info_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{len(df):,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with col1:
+                    split_size = st.number_input(
+                        "🔢 每个文件行数",
+                        min_value=100,
+                        max_value=50000,
+                        value=5000,
+                        step=100,
+                        help="设置每个拆分文件包含的行数"
+                    )
                 
-                with info_col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📊 总列数</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with col2:
+                    file_prefix = st.text_input(
+                        "📛 文件前缀",
+                        value="拆分数据",
+                        help="拆分后的文件名称前缀"
+                    )
                 
-                with info_col3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📋 字段列表</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with col3:
+                    file_format = st.selectbox(
+                        "📄 输出格式",
+                        options=["Excel (.xlsx)", "CSV (.csv)"],
+                        index=0,
+                        help="选择拆分文件的输出格式"
+                    )
                 
-                # 显示所有字段
-                st.markdown("**📋 可用字段：**")
-                fields_display = "、".join([f"`{col}`" for col in df.columns])
-                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
+                # 计算拆分数量
+                total_rows = len(df)
+                split_count = (total_rows + split_size - 1) // split_size
                 
-                # 数据预览
-                with st.expander("👁️ 预览数据（前20行）"):
-                    st.dataframe(df.head(20), use_container_width=True, height=300)
-    
-    # 聚合配置
-    if st.session_state.agg_df is not None:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 聚合配置</div></div>', unsafe_allow_html=True)
-        
-        # 字段选择
-        config_col1, config_col2 = st.columns(2)
-        
-        with config_col1:
-            agg_cols = st.multiselect(
-                "🔑 聚合字段（相同值的行会合并）",
-                options=list(st.session_state.agg_df.columns),
-                default=[],
-                help="选择用于分组的字段，这些字段完全相同的行会被合并"
-            )
-        
-        with config_col2:
-            merge_cols = st.multiselect(
-                "📝 待合并字段（内容会拼接在一起）",
-                options=[col for col in st.session_state.agg_df.columns if col not in agg_cols],
-                default=[],
-                help="选择要合并内容的字段"
-            )
-        
-        # 分隔符设置
-        sep_col1, sep_col2, sep_col3 = st.columns([1, 2, 1])
-        
-        with sep_col1:
-            sep_options = {
-                "逗号 ,": ",",
-                "分号 ;": ";",
-                "顿号 、": "、",
-                "竖线 |": "|",
-                "空格": " ",
-                "换行（换行符）": "\n",
-                "斜杠 /": "/",
-                "自定义": "custom"
-            }
-            sep_preset = st.selectbox(
-                "🔣 预设分隔符",
-                options=list(sep_options.keys()),
-                index=0
-            )
-        
-        with sep_col2:
-            if sep_preset == "自定义":
-                separator = st.text_input(
-                    "✏️ 自定义分隔符",
-                    value=",",
-                    max_chars=10,
-                    help="输入自定义的分隔符"
-                )
-            else:
-                separator = sep_options[sep_preset]
-                st.text_input(
-                    "🔣 分隔符预览",
-                    value=f"「{separator}」",
-                    disabled=True
-                )
-        
-        with sep_col3:
-            st.markdown("""
-            <div style="padding: 0.8rem; background: #FFF8DC; border-radius: 12px; text-align: center;">
-                <div style="color: #8B4513; font-size: 0.85rem;">💡 示例输出</div>
-                <div style="color: #D2691E; font-weight: 600; margin-top: 0.3rem;">
-                    A{sep}B{sep}C
-                </div>
-            </div>
-            """.format(sep=separator if separator != "\n" else "换行"), unsafe_allow_html=True)
-        
-        # 配置验证提示
-        if len(agg_cols) == 0 and len(merge_cols) == 0:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 请至少选择一个「聚合字段」和一个「待合并字段」来配置聚合规则 🥔
-            </div>
-            """, unsafe_allow_html=True)
-        elif len(agg_cols) == 0:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 请至少选择一个「聚合字段」🥔
-            </div>
-            """, unsafe_allow_html=True)
-        elif len(merge_cols) == 0:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 请至少选择一个「待合并字段」🍠
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            # 预估聚合结果
-            st.markdown("<hr>", unsafe_allow_html=True)
-            
-            preview_col1, preview_col2 = st.columns(2)
-            
-            with preview_col1:
-                # 计算预估结果
-                original_count = len(st.session_state.agg_df)
-                
-                # 估算聚合后的行数（基于聚合字段的唯一组合数）
-                if agg_cols:
-                    unique_groups = st.session_state.agg_df.groupby(agg_cols).ngroups
-                else:
-                    unique_groups = 1
-                
-                st.markdown("**🥔 聚合预估**")
                 st.markdown(f"""
-                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; color: #8B4513;">
-                    <p style="margin: 0.3rem 0;">• 原始数据：<strong>{original_count:,}</strong> 条</p>
-                    <p style="margin: 0.3rem 0;">• 聚合后预计：<strong>{unique_groups:,}</strong> 条</p>
-                    <p style="margin: 0.3rem 0;">• 减少：<strong>{original_count - unique_groups:,}</strong> 条（{(1 - unique_groups/original_count)*100:.1f}%）</p>
-                    <p style="margin: 0.3rem 0;">• 分隔符：<code>{separator if separator != chr(10) else '换行符'}</code></p>
+                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; margin: 1rem 0;">
+                    <div style="color: #8B4513; font-weight: 600;">📊 拆分预估</div>
+                    <div style="color: #D2691E; margin-top: 0.5rem;">
+                        • 总行数：<b>{total_rows:,}</b> 行<br>
+                        • 拆分条数：<b>{split_size:,}</b> 行/文件<br>
+                        • 生成文件数：<b>{split_count}</b> 个文件
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
-            
-            with preview_col2:
-                st.markdown("**🍠 提示**")
-                st.markdown("""
-                <div style="background: #FFE4C4; padding: 1rem; border-radius: 12px; color: #8B4513;">
-                    <p style="margin: 0.3rem 0;">💡 聚合字段完全相同的行会被合并</p>
-                    <p style="margin: 0.3rem 0;">💡 待合并字段的内容会按顺序拼接</p>
-                    <p style="margin: 0.3rem 0;">💡 空值会自动跳过</p>
-                    <p style="margin: 0.3rem 0;">💡 非待合并字段保留第一行值</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # 执行聚合按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        
-        with col_btn2:
-            if st.button("🚀 开始聚合", type="primary", use_container_width=True):
-                if len(agg_cols) == 0:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请至少选择一个「聚合字段」🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
                 
-                if len(merge_cols) == 0:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请至少选择一个「待合并字段」🍠</div>
-                    """, unsafe_allow_html=True)
-                    return
+                # 执行拆分
+                col_execute, col_clear = st.columns([1, 4])
                 
-                with st.spinner("🍠 正在聚合数据..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    try:
-                        # 执行聚合
-                        start_time = time.time()
-                        
-                        status_text.text("🥔 正在分析数据结构...")
-                        progress_bar.progress(0.2)
-                        
-                        df = st.session_state.agg_df.copy()
-                        
-                        # 确定需要保留的字段（非聚合且非待合并的字段）
-                        other_cols = [col for col in df.columns if col not in agg_cols and col not in merge_cols]
-                        
-                        # 构建聚合函数
-                        # - 聚合字段：保留（自然保留）
-                        # - 待合并字段：用分隔符连接
-                        # - 其他字段：取第一个值
-                        agg_funcs = {}
-                        for col in merge_cols:
-                            agg_funcs[col] = lambda x, sep=separator: sep.join(
-                                [str(v) for v in x.dropna().astype(str) if str(v).strip()]
-                            )
-                        for col in other_cols:
-                            agg_funcs[col] = 'first'
-                        
-                        progress_bar.progress(0.4)
-                        status_text.text("🥔 正在分组聚合...")
-                        
-                        # 执行groupby聚合
-                        result_df = df.groupby(agg_cols, as_index=False, sort=False).agg(agg_funcs)
-                        
-                        progress_bar.progress(0.8)
-                        status_text.text("🍠 正在整理结果...")
-                        
-                        # 调整列顺序：聚合字段 + 待合并字段 + 其他字段
-                        final_columns = agg_cols + merge_cols + other_cols
-                        result_df = result_df[[col for col in final_columns if col in result_df.columns]]
-                        
-                        progress_bar.progress(1.0)
-                        status_text.empty()
-                        progress_bar.empty()
-                        
-                        processing_time = time.time() - start_time
-                        
-                        st.session_state.agg_result = {
-                            'result_df': result_df,
-                            'original_count': len(st.session_state.agg_df),
-                            'result_count': len(result_df),
-                            'processing_time': processing_time
-                        }
-                        
-                        # 显示成功消息
-                        st.markdown("""
-                        <div class="success-cute" style="margin-top: 1rem;">
-                            🎉 聚合完成！可以下载结果文件了 🥔🎉
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        progress_bar.empty()
-                        status_text.empty()
-                        st.markdown(f"""
-                        <div class="error-cute">
-                            ❌ 聚合失败：{str(e)} 🥔
-                        </div>
-                        """, unsafe_allow_html=True)
-    
-    # 显示聚合结果
-    if st.session_state.agg_result:
-        result = st.session_state.agg_result
-        result_df = result['result_df']
-        
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 聚合结果统计</div></div>', unsafe_allow_html=True)
-        
-        # 统计卡片
-        result_col1, result_col2, result_col3, result_col4, result_col5 = st.columns(5)
-        
-        with result_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 原始行数</div>
-                <div class="metric-value">{result['original_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 聚合后</div>
-                <div class="metric-value">{result['result_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col3:
-            reduced = result['original_count'] - result['result_count']
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📉 减少行数</div>
-                <div class="metric-value">{reduced:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col4:
-            reduce_rate = (1 - result['result_count'] / result['original_count']) * 100
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📊 压缩率</div>
-                <div class="metric-value">{reduce_rate:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col5:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">⏱️ 处理时间</div>
-                <div class="metric-value">{result['processing_time']:.2f}s</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 聚合效果提示
-        if reduce_rate > 50:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                🎉 太棒了！数据压缩了 <strong>{reduce_rate:.1f}%</strong>，效率大幅提升 🥔🎉
-            </div>
-            """, unsafe_allow_html=True)
-        elif reduce_rate > 20:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                😊 不错的效果！数据压缩了 <strong>{reduce_rate:.1f}%</strong> 🍠
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 数据相似度较低，压缩了 <strong>{reduce_rate:.1f}%</strong> 🥔
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 结果预览
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
-        
-        # 预览前50行
-        preview_rows = min(50, len(result_df))
-        st.dataframe(result_df.head(preview_rows), use_container_width=True, height=350)
-        
-        st.caption(f"显示前 {preview_rows} 行，共 {len(result_df):,} 行")
-        
-        # 下载按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
-        
-        excel_bytes = excel_to_bytes(result_df, "聚合结果.xlsx")
-        
-        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-        
-        with download_col1:
-            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-        
-        with download_col2:
-            st.download_button(
-                label="📥 下载聚合结果Excel",
-                data=excel_bytes,
-                file_name=f"数据聚合结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True
-            )
-        
-        with download_col3:
-            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================
-# 页面5：域名提取器
-# ============================================
-def show_domain_tool():
-    """显示域名提取器工具"""
-    from urllib.parse import urlparse
-    
-    st.markdown("""
-    <div class="potato-header">
-        <h1 class="potato-title">🌐 域名提取器</h1>
-        <p class="potato-subtitle">✨ 从URL中提取主域名或子域名 ✨</p>
-    </div>
-    
-    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
-    """, unsafe_allow_html=True)
-    
-    # 使用说明卡片
-    st.markdown("""
-    <div class="potato-card" style="margin: 1rem 0;">
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
-            <div style="flex: 1; min-width: 250px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
-                <div style="color: #D2691E; font-size: 0.9rem;">从Excel中的URL列提取域名，支持政务类域名和普通域名，自动识别主域名或子域名。</div>
-            </div>
-            <div style="flex: 2; min-width: 300px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
-                <div style="color: #8B4513; font-size: 0.9rem;">
-                    ① 上传Excel文件 → ② 选择URL字段 → ③ 设置域名类型和提取类型 → ④ 执行提取 → ⑤ 下载结果
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 域名提取规则说明
-    st.markdown("""
-    <div class="potato-card" style="margin-bottom: 1rem;">
-        <div class="potato-card-header">📖 提取规则说明</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
-            <div style="flex: 1; min-width: 280px; background: #FFF8DC; padding: 0.8rem; border-radius: 10px;">
-                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🏛️ 政务类域名（.gov.cn）</div>
-                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                    <tr><td><b>示例URL：</b></td><td>https://services.credit.jiangsu.gov.cn:8809</td></tr>
-                    <tr><td><b>主域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">jiangsu.gov.cn</code>（最后三段）</td></tr>
-                    <tr><td><b>子域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">credit.jiangsu.gov.cn</code>（最后四段）</td></tr>
-                </table>
-            </div>
-            <div style="flex: 1; min-width: 280px; background: #FFF0F5; padding: 0.8rem; border-radius: 10px;">
-                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🌐 普通域名</div>
-                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                    <tr><td><b>示例URL：</b></td><td>https://www.example.com/path/to/page</td></tr>
-                    <tr><td><b>主域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">example.com</code>（最后两段）</td></tr>
-                    <tr><td><b>子域名：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">www.example.com</code>（最后三段）</td></tr>
-                </table>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 初始化session state
-    if 'domain_df' not in st.session_state:
-        st.session_state.domain_df = None
-    if 'domain_result' not in st.session_state:
-        st.session_state.domain_result = None
-    
-    # 域名提取函数 - 增加异常处理和中文错误提示
-    def extract_domain_from_url(url):
-        """从URL中提取域名（去除协议和端口号），返回 (域名, 错误信息) 元组"""
-        try:
-            # 处理空值
-            if pd.isna(url) or not str(url).strip():
-                return (None, "空值")
-            
-            url = str(url).strip()
-            
-            # 检查是否为空字符串
-            if not url:
-                return (None, "空值")
-            
-            # 检查是否包含有效域名特征（至少有一个点）
-            if '.' not in url:
-                return (None, "非URL格式")
-            
-            # 去除协议
-            for protocol in ['https://', 'http://', 'HTTPS://', 'HTTP://']:
-                if url.startswith(protocol):
-                    url = url[len(protocol):]
-                    break
-            
-            # 去除路径（取第一个/之前的部分）
-            if '/' in url:
-                url = url.split('/')[0]
-            
-            # 去除端口号
-            if ':' in url:
-                url = url.split(':')[0]
-            
-            # 验证结果是否有效域名
-            if not url or len(url) < 4:  # 最少应该是 x.x 格式
-                return (None, "域名格式无效")
-            
-            return (url, None)
-            
-        except Exception as e:
-            return (None, f"解析异常")
-    
-    def is_gov_domain(domain):
-        """判断是否为政务类域名"""
-        try:
-            if not domain:
-                return False
-            parts = domain.lower().split('.')
-            # 政务类域名通常为 xxx.gov.cn 或 xxx.省.gov.cn 格式
-            # 检查是否以 gov.cn 结尾
-            if len(parts) >= 2 and parts[-2] == 'gov' and parts[-1] == 'cn':
-                return True
-            return False
-        except Exception:
-            return False
-    
-    def extract_target_domain(domain, domain_type, extract_type):
-        """根据域名类型和提取类型提取目标域名，返回 (域名, 错误信息) 元组"""
-        try:
-            if not domain:
-                return (None, "空域名")
-            
-            parts = domain.split('.')
-            
-            if domain_type == "政务类域名":
-                # 政务类域名
-                if extract_type == "主域名":
-                    # 主域名 = 最后三段
-                    if len(parts) >= 3:
-                        return ('.'.join(parts[-3:]), None)
-                    else:
-                        return (domain, "域名段数不足(政务主域名)")
-                else:
-                    # 子域名 = 最后四段
-                    if len(parts) >= 4:
-                        return ('.'.join(parts[-4:]), None)
-                    else:
-                        return (domain, "域名段数不足(政务子域名)")
-            else:
-                # 普通域名
-                if extract_type == "主域名":
-                    # 主域名 = 最后两段
-                    if len(parts) >= 2:
-                        return ('.'.join(parts[-2:]), None)
-                    else:
-                        return (domain, "域名段数不足(普通主域名)")
-                else:
-                    # 子域名 = 最后三段
-                    if len(parts) >= 3:
-                        return ('.'.join(parts[-3:]), None)
-                    else:
-                        return (domain, "域名段数不足(普通子域名)")
-                        
-        except Exception as e:
-            return (None, "提取异常")
-    
-    def safe_extract_domain(url, domain_type, extract_type):
-        """安全的域名提取函数，统一处理所有异常"""
-        try:
-            # 第一步：提取域名（去除协议、端口、路径）
-            domain, error1 = extract_domain_from_url(url)
-            
-            if error1:
-                return (None, error1)
-            
-            # 第二步：根据配置提取目标域名
-            result, error2 = extract_target_domain(domain, domain_type, extract_type)
-            
-            return (result, error2)
-            
-        except Exception as e:
-            return (None, f"未知异常")
-    
-    # 使用说明
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0;">
-            <span style="font-size: 2.5rem;">🥔</span>
-            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="potato-card" style="margin-bottom: 0.8rem;">
-            <div class="potato-card-header">🌱 操作步骤</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>Excel文件</b> 📁</li>
-                <li>选择 <b>URL字段</b> 🔗</li>
-                <li>设置 <b>域名类型</b> 🏛️</li>
-                <li>设置 <b>提取类型</b> 🎯</li>
-                <li>点击 <b>开始提取</b> 🚀</li>
-                <li>下载 <b>结果文件</b> 📥</li>
-            </ol>
-        </div>
-        
-        <div class="potato-card">
-            <div class="potato-card-header">💡 域名类型说明</div>
-            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li><b>政务类域名：</b>.gov.cn结尾的政务网站</li>
-                <li><b>普通域名：</b>商业/个人网站等</li>
-            </ul>
-        </div>
-        
-        <div class="potato-card" style="margin-top: 0.8rem;">
-            <div class="potato-card-header">💡 提取类型说明</div>
-            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li><b>主域名：</b>网站核心域名</li>
-                <li><b>子域名：</b>包含部门/子站的域名</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 2rem;">🥔 🌿</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("🥔 域名提取器")
-    
-    # 文件上传区域
-    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel文件</div></div>', unsafe_allow_html=True)
-    
-    file = st.file_uploader(
-        "点击上传或拖拽Excel文件到此处",
-        type=['xlsx', 'xls'],
-        help="🥔 上传包含URL的Excel文件",
-        key="domain_file_uploader"
-    )
-    
-    if file:
-        with st.spinner("🥔 加载中..."):
-            df = load_data_file(file)
-            if df is not None:
-                st.session_state.domain_df = df
-                st.session_state.domain_result = None
-                st.markdown("""
-                <div class="success-cute">✅ 文件加载成功</div>
-                """, unsafe_allow_html=True)
-                
-                # 显示文件信息
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
-                
-                info_col1, info_col2, info_col3 = st.columns(3)
-                
-                with info_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{len(df):,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📊 总列数</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col3:
-                    file_size_mb = file.size / (1024 * 1024)
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">💾 文件大小</div>
-                        <div class="metric-value">{file_size_mb:.2f} MB</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 显示所有字段
-                st.markdown("**📋 可用字段：**")
-                fields_display = "、".join([f"`{col}`" for col in df.columns])
-                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
-                
-                # 数据预览
-                with st.expander("👁️ 预览数据（前20行）"):
-                    st.dataframe(df.head(20), use_container_width=True, height=300)
-    
-    # 提取配置
-    if st.session_state.domain_df is not None:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 提取配置</div></div>', unsafe_allow_html=True)
-        
-        config_col1, config_col2, config_col3 = st.columns(3)
-        
-        with config_col1:
-            url_field = st.selectbox(
-                "🔗 选择URL字段",
-                options=["（请选择）"] + list(st.session_state.domain_df.columns),
-                index=0,
-                help="选择包含URL的列"
-            )
-            if url_field == "（请选择）":
-                url_field = None
-        
-        with config_col2:
-            domain_type = st.radio(
-                "🏛️ 域名类型",
-                options=["政务类域名", "普通域名"],
-                horizontal=True,
-                help="选择URL所属的域名类型"
-            )
-        
-        with config_col3:
-            extract_type = st.radio(
-                "🎯 提取类型",
-                options=["主域名", "子域名"],
-                horizontal=True,
-                help="选择要提取的域名类型"
-            )
-        
-        # 字段预览
-        if url_field:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown(f"**🥔 `{url_field}` 字段预览**")
-            
-            preview_df = st.session_state.domain_df[url_field].dropna().head(10)
-            st.write(preview_df.tolist())
-            
-            # 统计空值
-            null_count = st.session_state.domain_df[url_field].isnull().sum()
-            st.caption(f"📊 共 {len(st.session_state.domain_df):,} 条记录，空值 {null_count:,} 条")
-        
-        # 执行提取按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        
-        with col_btn2:
-            if st.button("🚀 开始提取", type="primary", use_container_width=True):
-                if not url_field:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择包含URL的字段 🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
-                
-                with st.spinner("🍠 正在提取域名..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    try:
-                        start_time = time.time()
-                        
-                        status_text.text("🥔 正在解析URL...")
-                        progress_bar.progress(0.2)
-                        
-                        df = st.session_state.domain_df.copy()
-                        
-                        # 确定新列名
-                        if domain_type == "政务类域名":
-                            if extract_type == "主域名":
-                                new_col_name = "提取主域名(政务)"
-                            else:
-                                new_col_name = "提取子域名(政务)"
-                        else:
-                            if extract_type == "主域名":
-                                new_col_name = "提取主域名"
-                            else:
-                                new_col_name = "提取子域名"
-                        
-                        status_text.text("🥔 正在提取域名...")
-                        progress_bar.progress(0.4)
-                        
-                        # 使用安全的提取函数处理每一行
-                        results = []
-                        errors = []
-                        total = len(df)
-                        
-                        for idx, url in enumerate(df[url_field]):
-                            result, error = safe_extract_domain(url, domain_type, extract_type)
-                            results.append(result)
-                            errors.append(error)
-                            
-                            # 每100行更新一次进度
-                            if idx % 100 == 0:
-                                progress = 0.4 + (idx / total) * 0.4
-                                progress_bar.progress(progress)
-                        
-                        progress_bar.progress(0.8)
-                        status_text.text("🍠 正在整理结果...")
-                        
-                        # 添加结果列
-                        df[new_col_name] = results
-                        
-                        # 统计成功/失败
-                        success_count = sum(1 for e in errors if e is None)
-                        fail_count = total - success_count
-                        
-                        # 统计错误类型
-                        error_stats = {}
-                        for e in errors:
-                            if e is not None:
-                                error_stats[e] = error_stats.get(e, 0) + 1
-                        
-                        progress_bar.progress(1.0)
-                        status_text.empty()
-                        progress_bar.empty()
-                        
-                        processing_time = time.time() - start_time
-                        
-                        st.session_state.domain_result = {
-                            'result_df': df,
-                            'success_count': success_count,
-                            'fail_count': fail_count,
-                            'total_count': total,
-                            'new_col_name': new_col_name,
-                            'processing_time': processing_time,
-                            'domain_type': domain_type,
-                            'extract_type': extract_type,
-                            'error_stats': error_stats
-                        }
-                        
-                        # 显示成功消息
-                        st.markdown("""
-                        <div class="success-cute" style="margin-top: 1rem;">
-                            🎉 域名提取完成！可以下载结果文件了 🥔🎉
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        progress_bar.empty()
-                        status_text.empty()
-                        st.markdown(f"""
-                        <div class="error-cute">
-                            ❌ 提取失败：URL格式不正确，无法解析 🥔
-                        </div>
-                        """, unsafe_allow_html=True)
-    
-    # 显示提取结果
-    if st.session_state.domain_result:
-        result = st.session_state.domain_result
-        result_df = result['result_df']
-        
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 提取结果统计</div></div>', unsafe_allow_html=True)
-        
-        # 统计卡片
-        result_col1, result_col2, result_col3, result_col4, result_col5 = st.columns(5)
-        
-        with result_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 总行数</div>
-                <div class="metric-value">{result['total_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">✅ 提取成功</div>
-                <div class="metric-value" style="color: #228B22;">{result['success_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">⚠️ 跳过</div>
-                <div class="metric-value" style="color: #FF6347;">{result['fail_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col4:
-            success_rate = (result['success_count'] / result['total_count'] * 100) if result['total_count'] > 0 else 0
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📊 成功率</div>
-                <div class="metric-value">{success_rate:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with result_col5:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">⏱️ 处理时间</div>
-                <div class="metric-value">{result['processing_time']:.2f}s</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 显示错误类型统计
-        error_stats = result.get('error_stats', {})
-        if error_stats:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<div class="potato-card"><div class="potato-card-header">⚠️ 跳过详情（未能提取的记录）</div></div>', unsafe_allow_html=True)
-            
-            error_col1, error_col2 = st.columns([2, 1])
-            
-            with error_col1:
-                # 显示错误统计表格
-                error_data = []
-                error_reason_map = {
-                    "空值": "空单元格或空字符串",
-                    "非URL格式": "不包含域名格式（如缺少'.'）",
-                    "域名格式无效": "域名格式不符合规范",
-                    "域名段数不足(政务主域名)": "政务域名段数不足（需要至少3段）",
-                    "域名段数不足(政务子域名)": "政务域名段数不足（需要至少4段）",
-                    "域名段数不足(普通主域名)": "普通域名段数不足（需要至少2段）",
-                    "域名段数不足(普通子域名)": "普通域名段数不足（需要至少3段）",
-                    "解析异常": "解析过程中发生异常",
-                    "未知异常": "发生未知错误"
-                }
-                
-                for error_type, count in sorted(error_stats.items(), key=lambda x: -x[1]):
-                    reason = error_reason_map.get(error_type, error_type)
-                    error_data.append({"跳过类型": error_type, "原因": reason, "数量": count})
-                
-                if error_data:
-                    error_df = pd.DataFrame(error_data)
-                    st.dataframe(error_df, use_container_width=True, hide_index=True)
-            
-            with error_col2:
-                st.markdown("""
-                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px;">
-                    <div style="color: #8B4513; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">💡 说明</div>
-                    <ul style="color: #8B4513; font-size: 0.8rem; line-height: 1.6; padding-left: 1.2rem; margin: 0;">
-                        <li>空值行已自动跳过</li>
-                        <li>异常值已自动跳过</li>
-                        <li>结果中显示为空</li>
-                        <li>不会中断处理流程</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # 提取效果提示
-        if success_rate >= 95:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                🎉 太棒了！提取成功率 <strong>{success_rate:.1f}%</strong> 🥔🎉
-            </div>
-            """, unsafe_allow_html=True)
-        elif success_rate >= 80:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                😊 不错的效果！提取成功率 <strong>{success_rate:.1f}%</strong> 🍠
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 提取成功率 <strong>{success_rate:.1f}%</strong>，请检查URL格式是否正确 🥔
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 显示提取配置
-        st.markdown(f"""
-        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 12px; margin-top: 0.5rem;">
-            <div style="color: #8B4513; font-size: 0.9rem;">
-                <b>⚙️ 提取配置：</b>
-                域名类型：<code>{result['domain_type']}</code> | 
-                提取类型：<code>{result['extract_type']}</code> | 
-                新增列：<code>{result['new_col_name']}</code>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # 结果预览
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
-        
-        # 显示新增列
-        preview_cols = [col for col in result_df.columns if col != result['new_col_name']][:3] + [result['new_col_name']]
-        preview_cols = [col for col in preview_cols if col in result_df.columns]
-        
-        # 预览前50行
-        preview_rows = min(50, len(result_df))
-        st.dataframe(result_df.head(preview_rows), use_container_width=True, height=350)
-        
-        st.caption(f"显示前 {preview_rows} 行，共 {len(result_df):,} 行 | 结果列：<code>{result['new_col_name']}</code>")
-        
-        # 下载按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
-        
-        excel_bytes = excel_to_bytes(result_df, "域名提取结果.xlsx")
-        
-        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-        
-        with download_col1:
-            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-        
-        with download_col2:
-            st.download_button(
-                label="📥 下载提取结果Excel",
-                data=excel_bytes,
-                file_name=f"域名提取结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary",
-                use_container_width=True
-            )
-        
-        with download_col3:
-            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================
-# 页面6：单位树构建器
-# ============================================
-
-# 定义一级分组常量
-GROUP_LIST = ["[党委]", "[政府]", "[人大]", "[政协]", "[法院]", "[检察院]", "[群众团体]", "[国有企业]", "[直联企业]", "[民营企业]", "[待分组]"]
-
-
-def classify_group(unit_name: str, unit_type: str) -> str:
-    """根据单位性质和名称关键词判断分组
-    
-    Args:
-        unit_name: 单位名称
-        unit_type: 单位性质（国有企业/企业/党政机关/群团等）
-    
-    Returns:
-        分组名称，如 [政府]、[党委] 等
-    """
-    if pd.isna(unit_name):
-        unit_name = ""
-    if pd.isna(unit_type):
-        unit_type = ""
-    
-    unit_name = str(unit_name).strip()
-    unit_type = str(unit_type).strip()
-    
-    # 1. 国有企业 -> [国有企业]
-    if unit_type == "国有企业":
-        return "[国有企业]"
-    
-    # 2. 企业（非国企）-> [直联企业]
-    if unit_type == "企业":
-        return "[直联企业]"
-    
-    # 3. 群团 -> [群众团体]
-    if unit_type == "群团":
-        return "[群众团体]"
-    
-    # 4. 党政机关 -> 根据关键词判断
-    if unit_type == "党政机关":
-        # 优先检查关键词顺序很重要
-        # 检察院
-        if "检察院" in unit_name:
-            return "[检察院]"
-        # 法院
-        if "法院" in unit_name:
-            return "[法院]"
-        # 政协
-        if "政协" in unit_name:
-            return "[政协]"
-        # 人大
-        if "人大" in unit_name:
-            return "[人大]"
-        # 纪委（包含纪委的组织）
-        if "纪委" in unit_name or "纪检" in unit_name:
-            return "[党委]"
-        # 组织部、宣传部等党委部门
-        if any(keyword in unit_name for keyword in ["党委", "组织部", "宣传部", "统战部", "政法委", "编办", "直属机关", "党校"]):
-            return "[党委]"
-        # 政府关键词
-        if any(keyword in unit_name for keyword in ["厅", "局", "委", "办", "政府"]):
-            return "[政府]"
-    
-    # 默认归入[待分组]
-    return "[待分组]"
-
-
-def is_valid_parent(parent: str, all_units: set) -> bool:
-    """判断上级节点是否有效
-    
-    Args:
-        parent: 上级节点名称
-        all_units: 所有单位名称集合
-    
-    Returns:
-        是否有效
-    """
-    if pd.isna(parent) or not str(parent).strip():
-        return False
-    
-    parent = str(parent).strip()
-    
-    # 空字符串无效
-    if not parent:
-        return False
-    
-    # 如果是分组名称（如[政府]），有效
-    if parent in GROUP_LIST:
-        return True
-    
-    # 如果是某个单位名称，有效
-    if parent in all_units:
-        return True
-    
-    return False
-
-
-def get_parent_node(unit_name: str, admin_unit: str, all_units: set, group: str) -> str:
-    """判断上级节点
-    
-    Args:
-        unit_name: 单位名称
-        admin_unit: 行政主管单位
-        all_units: 所有单位名称集合
-        group: 该单位的分组
-    
-    Returns:
-        上级节点名称
-    """
-    # 情况1：行政主管单位 = 单位名称本身（根节点）
-    if not pd.isna(admin_unit) and str(admin_unit).strip() == str(unit_name).strip():
-        return group
-    
-    # 情况2：行政主管单位在单位列表中存在
-    if not pd.isna(admin_unit) and str(admin_unit).strip() in all_units:
-        return str(admin_unit).strip()
-    
-    # 情况3：行政主管单位是一级分组名称
-    if not pd.isna(admin_unit) and str(admin_unit).strip() in GROUP_LIST:
-        return str(admin_unit).strip()
-    
-    # 无效情况
-    return "[待分组]"
-
-
-def calculate_level(unit_name: str, parent_node: str, all_units: set, level_cache: dict) -> int:
-    """计算单位层级（递归）
-    
-    Args:
-        unit_name: 单位名称
-        parent_node: 上级节点
-        all_units: 所有单位名称集合
-        level_cache: 层级缓存
-    
-    Returns:
-        层级（根节点为1级）
-    """
-    if unit_name in level_cache:
-        return level_cache[unit_name]
-    
-    # 如果上级是分组，根节点为1级
-    if parent_node in GROUP_LIST:
-        level_cache[unit_name] = 1
-        return 1
-    
-    # 如果上级是其他单位，递归计算
-    if parent_node in all_units:
-        # 需要找到 parent_node 的上级
-        # 这里简化处理，假设最多几层
-        for _, row in pd.DataFrame({"name": [unit_name], "parent": [parent_node]}).iter():
-            parent_parent = parent_node
-            level = 2  # 有上级单位，至少是2级
-            # 简单处理：找到parent的上级
-            if parent_parent in all_units and parent_parent not in GROUP_LIST:
-                level += 1
-            level_cache[unit_name] = level
-            return level
-    
-    # 默认情况
-    level_cache[unit_name] = 1
-    return 1
-
-
-def show_unit_tree_tool():
-    """显示单位树构建器工具"""
-    st.markdown("""
-    <div class="potato-header">
-        <h1 class="potato-title">🌳 单位树构建器</h1>
-        <p class="potato-subtitle">✨ 根据单位数据自动构建组织架构树 ✨</p>
-    </div>
-    
-    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
-    """, unsafe_allow_html=True)
-    
-    # 使用说明卡片
-    st.markdown("""
-    <div class="potato-card" style="margin: 1rem 0;">
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
-            <div style="flex: 1; min-width: 250px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
-                <div style="color: #D2691E; font-size: 0.9rem;">根据单位名称、行政主管单位、单位性质等字段，自动构建组织架构树，确定上级节点和分组归属。</div>
-            </div>
-            <div style="flex: 2; min-width: 300px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
-                <div style="color: #8B4513; font-size: 0.9rem;">
-                    ① 上传Excel/CSV文件 → ② 确认字段映射 → ③ 点击构建 → ④ 查看统计与预览 → ⑤ 下载结果
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 分组规则说明
-    with st.expander("📖 分组与上级节点规则说明", expanded=False):
-        st.markdown("""
-        <div class="potato-card">
-            <div class="potato-card-header">🌳 一级分组（共10个）</div>
-            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; margin-top: 0.5rem;">
-                <div style="background: #FFF8DC; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[党委]</div>
-                <div style="background: #E8F5E9; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[政府]</div>
-                <div style="background: #F3E5F5; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[人大]</div>
-                <div style="background: #E3F2FD; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[政协]</div>
-                <div style="background: #FFEBEE; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[法院]</div>
-                <div style="background: #FFF3E0; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[检察院]</div>
-                <div style="background: #F1F8E9; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[群众团体]</div>
-                <div style="background: #FCE4EC; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[国有企业]</div>
-                <div style="background: #E0F2F1; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[直联企业]</div>
-                <div style="background: #ECEFF1; padding: 0.5rem; border-radius: 8px; text-align: center; color: #8B4513;">[待分组]</div>
-            </div>
-        </div>
-        
-        <div style="margin-top: 1rem;" class="potato-card">
-            <div class="potato-card-header">📋 分组判定规则</div>
-            <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                <tr style="background: #FFF8DC;"><td><b>单位性质</b></td><td><b>名称关键词</b></td><td><b>分组</b></td></tr>
-                <tr><td>国有企业</td><td>任意</td><td>[国有企业]</td></tr>
-                <tr><td>企业</td><td>任意</td><td>[直联企业]</td></tr>
-                <tr><td>党政机关</td><td>法院</td><td>[法院]</td></tr>
-                <tr><td>党政机关</td><td>检察院</td><td>[检察院]</td></tr>
-                <tr><td>党政机关</td><td>政协</td><td>[政协]</td></tr>
-                <tr><td>党政机关</td><td>人大</td><td>[人大]</td></tr>
-                <tr><td>党政机关</td><td>党委、纪委、组织部、宣传部等</td><td>[党委]</td></tr>
-                <tr><td>党政机关</td><td>厅、局、委、办、政府</td><td>[政府]</td></tr>
-                <tr><td>群团</td><td>任意</td><td>[群众团体]</td></tr>
-            </table>
-        </div>
-        
-        <div style="margin-top: 1rem;" class="potato-card">
-            <div class="potato-card-header">🔗 上级节点判定规则</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.5rem;">
-                <li><b>行政主管单位 = 单位名称本身</b> → 上级节点 = 该单位所属分组（作为根节点）</li>
-                <li><b>行政主管单位在单位列表中存在</b> → 上级节点 = 行政主管单位</li>
-                <li><b>行政主管单位是一级分组名称</b> → 上级节点 = 该分组</li>
-                <li><b>其他情况</b> → 上级节点 = [待分组]</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 初始化session state
-    if 'tree_df' not in st.session_state:
-        st.session_state.tree_df = None
-    if 'tree_result' not in st.session_state:
-        st.session_state.tree_result = None
-    
-    # 使用说明
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0;">
-            <span style="font-size: 2.5rem;">🥔</span>
-            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="potato-card" style="margin-bottom: 0.8rem;">
-            <div class="potato-card-header">🌱 操作步骤</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>Excel/CSV文件</b> 📁</li>
-                <li>确认 <b>字段映射</b> 🔍</li>
-                <li>点击 <b>开始构建</b> 🌳</li>
-                <li>查看 <b>统计与预览</b> 📊</li>
-                <li>下载 <b>结果文件</b> 📥</li>
-            </ol>
-        </div>
-        
-        <div class="potato-card">
-            <div class="potato-card-header">💡 字段要求</div>
-            <ul style="color: #8B4513; line-height: 1.7; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li><b>单位名称：</b>必填，单位全称</li>
-                <li><b>行政主管单位：</b>可为空</li>
-                <li><b>单位性质：</b>如"党政机关"</li>
-                <li><b>区域：</b>如"XX区"</li>
-            </ul>
-        </div>
-        
-        <div class="potato-card" style="margin-top: 0.8rem;">
-            <div class="potato-card-header">💡 支持格式</div>
-            <ul style="color: #8B4513; line-height: 1.7; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li>.xlsx / .xls / .csv</li>
-                <li>CSV自动检测编码</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 2rem;">🥔 🌿</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("🥔 单位树构建器")
-    
-    # 文件上传区域
-    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传单位数据文件</div></div>', unsafe_allow_html=True)
-    
-    file = st.file_uploader(
-        "点击上传或拖拽Excel/CSV文件到此处",
-        type=['xlsx', 'xls', 'csv'],
-        help="🥔 上传包含单位数据的文件",
-        key="tree_file_uploader"
-    )
-    
-    if file:
-        with st.spinner("🥔 加载中..."):
-            df = load_data_file(file)
-            if df is not None:
-                st.session_state.tree_df = df
-                st.session_state.tree_result = None
-                st.markdown("""
-                <div class="success-cute">✅ 文件加载成功</div>
-                """, unsafe_allow_html=True)
-                
-                # 显示文件信息
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
-                
-                info_col1, info_col2, info_col3 = st.columns(3)
-                
-                with info_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{len(df):,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📊 总列数</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col3:
-                    file_size_mb = file.size / (1024 * 1024)
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">💾 文件大小</div>
-                        <div class="metric-value">{file_size_mb:.2f} MB</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 显示所有字段
-                st.markdown("**📋 可用字段：**")
-                fields_display = "、".join([f"`{col}`" for col in df.columns])
-                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
-                
-                # 数据预览
-                with st.expander("👁️ 预览数据（前20行）"):
-                    st.dataframe(df.head(20), use_container_width=True, height=300)
-    
-    # 字段映射配置
-    if st.session_state.tree_df is not None:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 字段映射配置</div></div>', unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-bottom: 1rem;">
-            <div style="color: #8B4513; font-size: 0.9rem;">
-                💡 请为每个必填字段选择对应的列。系统会自动识别相似名称的字段。
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # 自动识别字段
-        cols = list(st.session_state.tree_df.columns)
-        
-        # 单位名称字段
-        default_unit = None
-        for col in cols:
-            if any(keyword in col for keyword in ["单位名称", "单位", "名称", "name"]):
-                default_unit = col
-                break
-        
-        # 行政主管单位字段
-        default_admin = None
-        for col in cols:
-            if any(keyword in col for keyword in ["行政主管", "主管单位", "上级", "parent"]):
-                default_admin = col
-                break
-        
-        # 单位性质字段
-        default_type = None
-        for col in cols:
-            if any(keyword in col for keyword in ["单位性质", "性质", "type"]):
-                default_type = col
-                break
-        
-        # 区域字段
-        default_area = None
-        for col in cols:
-            if any(keyword in col for keyword in ["区域", "区县", "area", "区域名称"]):
-                default_area = col
-                break
-        
-        config_col1, config_col2 = st.columns(2)
-        
-        with config_col1:
-            unit_name_col = st.selectbox(
-                "🏷️ 单位名称字段（必填）",
-                options=["（请选择）"] + cols,
-                index=(cols.index(default_unit) + 1) if default_unit and default_unit in cols else 0,
-                help="选择包含单位名称的列"
-            )
-            if unit_name_col == "（请选择）":
-                unit_name_col = None
-            
-            unit_type_col = st.selectbox(
-                "📋 单位性质字段",
-                options=["（不映射）"] + cols,
-                index=(cols.index(default_type) + 1) if default_type and default_type in cols else 0,
-                help="选择包含单位性质的列（如：党政机关、企业、国有企业等）"
-            )
-            if unit_type_col == "（不映射）":
-                unit_type_col = None
-        
-        with config_col2:
-            admin_unit_col = st.selectbox(
-                "🔗 行政主管单位字段",
-                options=["（不映射）"] + cols,
-                index=(cols.index(default_admin) + 1) if default_admin and default_admin in cols else 0,
-                help="选择包含行政主管单位的列"
-            )
-            if admin_unit_col == "（不映射）":
-                admin_unit_col = None
-            
-            area_col = st.selectbox(
-                "🗺️ 区域字段",
-                options=["（不映射）"] + cols,
-                index=(cols.index(default_area) + 1) if default_area and default_area in cols else 0,
-                help="选择包含区域/区县名称的列"
-            )
-            if area_col == "（不映射）":
-                area_col = None
-        
-        # 验证必填字段
-        if unit_name_col is None:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                ⚠️ 请至少选择「单位名称」字段作为必填项 🥔
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 字段预览
-        if unit_name_col:
-            st.markdown("<hr>", unsafe_allow=True)
-            st.markdown(f"**🥔 单位名称字段预览**")
-            
-            preview_df = st.session_state.tree_df[unit_name_col].dropna().head(10)
-            st.write(preview_df.tolist())
-            
-            # 统计空值
-            null_count = st.session_state.tree_df[unit_name_col].isnull().sum()
-            total_count = len(st.session_state.tree_df)
-            st.caption(f"📊 共 {total_count:,} 条记录，空值 {null_count:,} 条")
-        
-        # 执行构建按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        
-        with col_btn2:
-            if st.button("🌳 开始构建单位树", type="primary", use_container_width=True):
-                if unit_name_col is None:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择「单位名称」字段 🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
-                
-                with st.spinner("🍠 正在构建单位树..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    try:
-                        start_time = time.time()
-                        
-                        status_text.text("🥔 正在处理数据...")
-                        progress_bar.progress(0.1)
-                        
-                        df = st.session_state.tree_df.copy()
-                        
-                        # 过滤掉单位名称为空的行
-                        original_count = len(df)
-                        df = df[df[unit_name_col].notna() & (df[unit_name_col].astype(str).str.strip() != "")]
-                        
-                        # 去重：同一单位名称只保留一条
-                        df = df.drop_duplicates(subset=[unit_name_col], keep='first')
-                        after_dedup = len(df)
-                        
-                        status_text.text("🥔 正在分析数据结构...")
-                        progress_bar.progress(0.2)
-                        
-                        # 构建所有单位名称集合
-                        all_units = set(df[unit_name_col].astype(str).str.strip())
-                        
-                        # 获取单位性质（用于分组判定）
-                        if unit_type_col:
-                            df['单位性质_处理'] = df[unit_type_col].fillna('')
-                        else:
-                            df['单位性质_处理'] = ''
-                        
-                        progress_bar.progress(0.3)
-                        status_text.text("🥔 正在分组...")
-                        
-                        # 分组判定
-                        groups = []
-                        for idx, row in df.iterrows():
-                            unit_name = row[unit_name_col]
-                            unit_type = row.get('单位性质_处理', '')
-                            group = classify_group(unit_name, unit_type)
-                            groups.append(group)
-                        
-                        df['分组'] = groups
-                        
-                        progress_bar.progress(0.5)
-                        status_text.text("🍠 正在确定上级节点...")
-                        
-                        # 上级节点判定
-                        parent_nodes = []
-                        for idx, row in df.iterrows():
-                            unit_name = row[unit_name_col]
-                            admin_unit = row[admin_unit_col] if admin_unit_col else None
-                            group = row['分组']
-                            
-                            parent = get_parent_node(unit_name, admin_unit, all_units, group)
-                            parent_nodes.append(parent)
-                        
-                        df['上级节点'] = parent_nodes
-                        
-                        progress_bar.progress(0.7)
-                        status_text.text("🍠 正在计算层级...")
-                        
-                        # 简化层级计算
-                        levels = []
-                        level_cache = {}
-                        for idx, row in df.iterrows():
-                            parent = row['上级节点']
-                            unit_name = row[unit_name_col]
-                            
-                            if parent in GROUP_LIST:
-                                levels.append(1)
-                                level_cache[unit_name] = 1
-                            elif parent in all_units and parent != unit_name:
-                                levels.append(2)  # 简化处理
-                            else:
-                                levels.append(1)
-                        
-                        df['层级'] = levels
-                        
-                        progress_bar.progress(0.85)
-                        status_text.text("🍠 正在整理结果...")
-                        
-                        # 添加区域字段
-                        if area_col:
-                            df['区域'] = df[area_col].fillna('未知')
-                        else:
-                            df['区域'] = '未知'
-                        
-                        progress_bar.progress(0.95)
-                        status_text.text("🍠 正在生成统计...")
-                        
-                        # 构建最终结果
-                        result_columns = [unit_name_col, '上级节点', '层级', '分组', '区域']
-                        if admin_unit_col:
-                            result_columns.insert(1, admin_unit_col)
-                        if unit_type_col:
-                            result_columns.append(unit_type_col)
-                        
-                        # 确保所有列都存在
-                        available_cols = [col for col in result_columns if col in df.columns or col in ['上级节点', '层级', '分组', '区域']]
-                        result_df = df[available_cols].copy()
-                        
-                        # 重命名列
-                        column_rename = {
-                            unit_name_col: '单位名称',
-                            admin_unit_col: '行政主管单位' if admin_unit_col else None,
-                            unit_type_col: '单位性质' if unit_type_col else None
-                        }
-                        column_rename = {k: v for k, v in column_rename.items() if v is not None}
-                        result_df = result_df.rename(columns=column_rename)
-                        
-                        # 统计信息
-                        group_stats = result_df['分组'].value_counts().to_dict()
-                        area_stats = result_df['区域'].value_counts().to_dict() if '区域' in result_df.columns else {}
-                        
-                        # 待分组统计
-                        pending_count = len(result_df[result_df['上级节点'] == '[待分组]'])
-                        
-                        progress_bar.progress(1.0)
-                        status_text.empty()
-                        progress_bar.empty()
-                        
-                        processing_time = time.time() - start_time
-                        
-                        st.session_state.tree_result = {
-                            'result_df': result_df,
-                            'original_count': original_count,
-                            'after_dedup': after_dedup,
-                            'group_stats': group_stats,
-                            'area_stats': area_stats,
-                            'pending_count': pending_count,
-                            'processing_time': processing_time,
-                            'unit_name_col': '单位名称',
-                            'admin_unit_col': '行政主管单位' if admin_unit_col else None,
-                            'unit_type_col': '单位性质' if unit_type_col else None
-                        }
-                        
-                        # 显示成功消息
-                        st.markdown("""
-                        <div class="success-cute" style="margin-top: 1rem;">
-                            🎉 单位树构建完成！可以下载结果文件了 🥔🎉
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        progress_bar.empty()
-                        status_text.empty()
-                        st.markdown(f"""
-                        <div class="error-cute">
-                            ❌ 构建失败：{str(e)} 🥔
-                        </div>
-                        """, unsafe_allow_html=True)
-    
-    # 显示构建结果
-    if st.session_state.tree_result:
-        result = st.session_state.tree_result
-        result_df = result['result_df']
-        
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 构建结果统计</div></div>', unsafe_allow_html=True)
-        
-        # 统计卡片
-        stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
-        
-        with stat_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 原始行数</div>
-                <div class="metric-value">{result['original_count']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 去重后</div>
-                <div class="metric-value">{result['after_dedup']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">🏷️ 分组数量</div>
-                <div class="metric-value">{len(result['group_stats']):,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col4:
-            pending = result['pending_count']
-            color = "#FF6347" if pending > 0 else "#228B22"
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">⚠️ 待分组</div>
-                <div class="metric-value" style="color: {color};">{pending:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col5:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">⏱️ 处理时间</div>
-                <div class="metric-value">{result['processing_time']:.2f}s</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 分组统计详情
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📋 分组统计</div></div>', unsafe_allow_html=True)
-        
-        # 分组统计表格
-        group_data = []
-        for group in GROUP_LIST:
-            if group in result['group_stats']:
-                group_data.append({
-                    "分组": group,
-                    "单位数量": result['group_stats'][group]
-                })
-        
-        if group_data:
-            group_df = pd.DataFrame(group_data)
-            group_df = group_df.sort_values('单位数量', ascending=False)
-            
-            # 显示分组统计
-            display_cols = st.columns(5)
-            for i, (_, row) in enumerate(group_df.iterrows()):
-                with display_cols[i % 5]:
-                    st.markdown(f"""
-                    <div class="metric-card" style="padding: 0.6rem;">
-                        <div class="metric-label" style="font-size: 0.75rem;">{row['分组']}</div>
-                        <div class="metric-value">{row['单位数量']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            with st.expander("📊 查看分组统计表格"):
-                st.dataframe(group_df, use_container_width=True, hide_index=True)
-        
-        # 区域统计（如果存在）
-        if result['area_stats'] and len(result['area_stats']) > 1:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<div class="potato-card"><div class="potato-card-header">🗺️ 区域统计</div></div>', unsafe_allow_html=True)
-            
-            area_data = []
-            for area, count in sorted(result['area_stats'].items(), key=lambda x: -x[1]):
-                area_data.append({
-                    "区域": area,
-                    "单位数量": count
-                })
-            
-            if area_data:
-                with st.expander("📊 查看区域统计"):
-                    area_df = pd.DataFrame(area_data)
-                    st.dataframe(area_df, use_container_width=True, hide_index=True)
-        
-        # 待分组详情
-        if result['pending_count'] > 0:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<div class="potato-card"><div class="potato-card-header">⚠️ 待分组单位详情</div></div>', unsafe_allow_html=True)
-            
-            pending_df = result_df[result_df['上级节点'] == '[待分组]'][['单位名称']].head(20)
-            
-            with st.expander(f"📋 查看待分组单位（共 {result['pending_count']} 个，显示前20个）"):
-                st.dataframe(pending_df, use_container_width=True, hide_index=True)
-        
-        # 效果提示
-        pending_rate = (result['pending_count'] / result['after_dedup'] * 100) if result['after_dedup'] > 0 else 0
-        
-        if pending_rate <= 5:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                🎉 太棒了！97%+ 的单位已成功分组 🥔🎉
-            </div>
-            """, unsafe_allow_html=True)
-        elif pending_rate <= 20:
-            st.markdown(f"""
-            <div class="success-cute" style="margin-top: 1rem;">
-                😊 不错的效果！{100-pending_rate:.1f}% 的单位已成功分组 🍠
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                🤔 有 {pending_rate:.1f}% 的单位需要检查行政主管单位配置 🥔
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 结果预览
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
-        
-        # 预览前50行
-        preview_rows = min(50, len(result_df))
-        
-        # 添加筛选功能
-        filter_col1, filter_col2 = st.columns(2)
-        
-        with filter_col1:
-            filter_group = st.multiselect(
-                "🔍 按分组筛选",
-                options=GROUP_LIST,
-                default=[],
-                help="筛选特定分组的单位"
-            )
-        
-        with filter_col2:
-            filter_pending = st.checkbox("⚠️ 只显示待分组", value=False, help="只显示待分组的单位")
-        
-        # 应用筛选
-        display_df = result_df.copy()
-        if filter_group:
-            display_df = display_df[display_df['分组'].isin(filter_group)]
-        if filter_pending:
-            display_df = display_df[display_df['上级节点'] == '[待分组]']
-        
-        st.markdown(f"📊 共 **{len(display_df):,}** 条记录（原始 **{len(result_df):,}** 条）")
-        
-        st.dataframe(display_df.head(preview_rows), use_container_width=True, height=350)
-        
-        st.caption(f"显示前 {min(preview_rows, len(display_df))} 行")
-        
-        # 下载按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
-        
-        # 导出格式选择
-        export_format = st.radio(
-            "📥 选择导出格式",
-            options=["Excel (.xlsx)", "CSV (.csv)"],
-            horizontal=True,
-            help="选择下载文件的格式"
-        )
-        
-        excel_bytes = excel_to_bytes(result_df, "单位树结果.xlsx")
-        csv_bytes = csv_to_bytes(result_df, "单位树结果.csv")
-        
-        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-        
-        with download_col1:
-            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-        
-        with download_col2:
-            if export_format == "Excel (.xlsx)":
-                st.download_button(
-                    label="📥 下载结果Excel",
-                    data=excel_bytes,
-                    file_name=f"单位树结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    use_container_width=True
-                )
-            else:
-                st.download_button(
-                    label="📥 下载结果CSV",
-                    data=csv_bytes,
-                    file_name=f"单位树结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    type="primary",
-                    use_container_width=True
-                )
-        
-        with download_col3:
-            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================
-# 页面7：IP处理工具
-# ============================================
-def show_ip_tool():
-    """显示IP处理工具"""
-    st.markdown("""
-    <div class="potato-header">
-        <h1 class="potato-title">🖥️ IP处理工具</h1>
-        <p class="potato-subtitle">✨ IP段拆分与聚合，让IP管理更高效 ✨</p>
-    </div>
-    
-    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
-    """, unsafe_allow_html=True)
-    
-    # 使用说明卡片
-    st.markdown("""
-    <div class="potato-card" style="margin: 1rem 0;">
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
-            <div style="flex: 1; min-width: 250px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
-                <div style="color: #D2691E; font-size: 0.9rem;">对IP/IP段进行拆分或聚合处理，支持CIDR格式和范围格式，方便IP数据整理。</div>
-            </div>
-            <div style="flex: 2; min-width: 300px;">
-                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
-                <div style="color: #8B4513; font-size: 0.9rem;">
-                    ① 上传Excel/CSV文件 → ② 字段映射 → ③ 选择处理模式 → ④ 执行处理 → ⑤ 下载结果
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 模式说明卡片
-    st.markdown("""
-    <div class="potato-card" style="margin-bottom: 1rem;">
-        <div class="potato-card-header">📖 处理模式说明</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
-            <div style="flex: 1; min-width: 280px; background: #FFF8DC; padding: 0.8rem; border-radius: 10px;">
-                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔀 IP段拆分</div>
-                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                    <tr><td><b>范围格式：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.3</code></td></tr>
-                    <tr><td><b>→</b></td><td>3行：192.168.1.1, 192.168.1.2, 192.168.1.3</td></tr>
-                    <tr><td><b>CIDR格式：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">192.168.1.0/30</code></td></tr>
-                    <tr><td><b>→</b></td><td>2行：192.168.1.1, 192.168.1.2</td></tr>
-                </table>
-            </div>
-            <div style="flex: 1; min-width: 280px; background: #E8F5E9; padding: 0.8rem; border-radius: 10px;">
-                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔗 IP聚合（连续）</div>
-                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                    <tr><td><b>输入：</b></td><td>192.168.1.1, 192.168.1.2, 192.168.1.3</td></tr>
-                    <tr><td><b>→</b></td><td>全部聚合成段</td></tr>
-                    <tr><td><b>输出：</b></td><td><code style="background: #C8E6C9; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.3</code></td></tr>
-                </table>
-            </div>
-            <div style="flex: 1; min-width: 280px; background: #FFF3E0; padding: 0.8rem; border-radius: 10px;">
-                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔗 IP聚合（混合）</div>
-                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
-                    <tr><td><b>输入：</b></td><td>192.168.1.1, 192.168.1.2, 192.168.1.5, 192.168.1.8, 192.168.1.9</td></tr>
-                    <tr><td><b>→</b></td><td>连续的成段，不连续的保留</td></tr>
-                    <tr><td><b>输出：</b></td><td><code style="background: #FFE0B2; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.2, 192.168.1.5, 192.168.1.8-192.168.1.9</code></td></tr>
-                </table>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 初始化session state
-    if 'ip_df' not in st.session_state:
-        st.session_state.ip_df = None
-    if 'ip_result' not in st.session_state:
-        st.session_state.ip_result = None
-    
-    # 使用说明
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0;">
-            <span style="font-size: 2.5rem;">🥔</span>
-            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div class="potato-card" style="margin-bottom: 0.8rem;">
-            <div class="potato-card-header">🌱 操作步骤</div>
-            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
-                <li>上传 <b>Excel/CSV文件</b> 📁</li>
-                <li>映射 <b>单位字段</b> 🏷️</li>
-                <li>映射 <b>IP/IP段字段</b> 🖥️</li>
-                <li>选择 <b>处理模式</b> ⚙️</li>
-                <li>点击 <b>开始处理</b> 🚀</li>
-                <li>下载 <b>结果文件</b> 📥</li>
-            </ol>
-        </div>
-        
-        <div class="potato-card">
-            <div class="potato-card-header">💡 核心规则</div>
-            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li>同一单位下的IP才能处理</li>
-                <li>不同单位数据隔离</li>
-                <li>支持异常格式跳过</li>
-            </ul>
-        </div>
-        
-        <div class="potato-card" style="margin-top: 0.8rem;">
-            <div class="potato-card-header">💡 支持格式</div>
-            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
-                <li>单个IP：192.168.1.1</li>
-                <li>范围：192.168.1.1-192.168.1.10</li>
-                <li>CIDR：192.168.1.0/24</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 2rem;">🥔 🌿</span>
-        </div>
-        """, unsafe_allow_html=True)
-        st.caption("🥔 IP处理工具")
-    
-    # 文件上传区域
-    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传数据文件</div></div>', unsafe_allow_html=True)
-    
-    file = st.file_uploader(
-        "点击上传或拖拽Excel/CSV文件到此处",
-        type=['xlsx', 'xls', 'csv'],
-        help="🥔 上传包含IP数据的文件",
-        key="ip_file_uploader"
-    )
-    
-    if file:
-        with st.spinner("🥔 加载中..."):
-            df = load_data_file(file)
-            if df is not None:
-                st.session_state.ip_df = df
-                st.session_state.ip_result = None
-                st.markdown("""
-                <div class="success-cute">✅ 文件加载成功</div>
-                """, unsafe_allow_html=True)
-                
-                # 显示文件信息
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
-                
-                info_col1, info_col2, info_col3 = st.columns(3)
-                
-                with info_col1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📝 总行数</div>
-                        <div class="metric-value">{len(df):,}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">📊 总列数</div>
-                        <div class="metric-value">{len(df.columns)}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with info_col3:
-                    file_size_mb = file.size / (1024 * 1024)
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-label">💾 文件大小</div>
-                        <div class="metric-value">{file_size_mb:.2f} MB</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # 显示所有字段
-                st.markdown("**📋 可用字段：**")
-                fields_display = "、".join([f"`{col}`" for col in df.columns])
-                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
-                
-                # 数据预览
-                with st.expander("👁️ 预览数据（前20行）"):
-                    st.dataframe(df.head(20), use_container_width=True, height=300)
-    
-    # 字段映射配置
-    if st.session_state.ip_df is not None:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 字段映射配置</div></div>', unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-bottom: 1rem;">
-            <div style="color: #8B4513; font-size: 0.9rem;">
-                💡 <b>单位字段</b>用于分组，同一单位的IP会在一起处理。<b>IP/IP段字段</b>包含要处理的IP数据。
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # 自动识别字段
-        cols = list(st.session_state.ip_df.columns)
-        
-        # 单位字段
-        default_unit = None
-        for col in cols:
-            if any(keyword in col for keyword in ["单位名称", "单位", "名称", "name", "公司"]):
-                default_unit = col
-                break
-        
-        # IP字段
-        default_ip = None
-        for col in cols:
-            if any(keyword in col.lower() for keyword in ["ip", "地址", "ip地址"]):
-                default_ip = col
-                break
-        
-        config_col1, config_col2 = st.columns(2)
-        
-        with config_col1:
-            unit_col = st.selectbox(
-                "🏷️ 单位字段（必填）",
-                options=["（请选择）"] + cols,
-                index=(cols.index(default_unit) + 1) if default_unit and default_unit in cols else 0,
-                help="选择包含单位名称的列"
-            )
-            if unit_col == "（请选择）":
-                unit_col = None
-        
-        with config_col2:
-            ip_col = st.selectbox(
-                "🖥️ IP/IP段字段（必填）",
-                options=["（请选择）"] + cols,
-                index=(cols.index(default_ip) + 1) if default_ip and default_ip in cols else 0,
-                help="选择包含IP或IP段的列"
-            )
-            if ip_col == "（请选择）":
-                ip_col = None
-        
-        # 字段预览
-        if unit_col or ip_col:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            
-            preview_col1, preview_col2 = st.columns(2)
-            
-            with preview_col1:
-                if unit_col:
-                    st.markdown(f"**🏷️ 单位字段预览**")
-                    preview_df = st.session_state.ip_df[unit_col].dropna().head(5)
-                    st.write(preview_df.tolist())
-                    unique_units = st.session_state.ip_df[unit_col].nunique()
-                    st.caption(f"📊 共 {unique_units:,} 个唯一单位")
-            
-            with preview_col2:
-                if ip_col:
-                    st.markdown(f"**🖥️ IP字段预览**")
-                    preview_df = st.session_state.ip_df[ip_col].dropna().head(5)
-                    st.write(preview_df.tolist())
-        
-        # 处理模式选择
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 处理模式选择</div></div>', unsafe_allow_html=True)
-        
-        mode_col1, mode_col2, mode_col3 = st.columns(3)
-        
-        with mode_col1:
-            st.markdown("""
-            <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #DEB887;">
-                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔀</div>
-                <div style="font-weight: 700; color: #8B4513;">IP段拆分</div>
-                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">拆分成单个IP</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with mode_col2:
-            st.markdown("""
-            <div style="background: #E8F5E9; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #A5D6A7;">
-                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
-                <div style="font-weight: 700; color: #8B4513;">IP聚合（连续）</div>
-                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">连续的聚合成段</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with mode_col3:
-            st.markdown("""
-            <div style="background: #FFF3E0; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #FFCC80;">
-                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
-                <div style="font-weight: 700; color: #8B4513;">IP聚合（混合）</div>
-                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">连续成段+单IP保留</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        mode_options = {
-            "IP段拆分": "split",
-            "IP聚合（连续）": "aggregate_continuous",
-            "IP聚合（混合）": "aggregate_mixed"
-        }
-        
-        selected_mode = st.radio(
-            "🎯 选择处理模式",
-            options=list(mode_options.keys()),
-            horizontal=True,
-            help="选择IP处理方式"
-        )
-        process_mode = mode_options[selected_mode]
-        
-        # 模式说明
-        mode_descriptions = {
-            "split": """
-            <div style="background: #E3F2FD; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
-                <div style="color: #1565C0; font-weight: 600; margin-bottom: 0.3rem;">🔀 IP段拆分</div>
-                <ul style="color: #1565C0; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
-                    <li>将IP段拆分成每个IP一行</li>
-                    <li>范围格式 192.168.1.1-192.168.1.3 → 3行</li>
-                    <li>CIDR格式 192.168.1.0/30 → 2行（不含网络/广播地址）</li>
-                </ul>
-            </div>
-            """,
-            "aggregate_continuous": """
-            <div style="background: #E8F5E9; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
-                <div style="color: #2E7D32; font-weight: 600; margin-bottom: 0.3rem;">🔗 IP聚合（连续）</div>
-                <ul style="color: #2E7D32; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
-                    <li>将连续的IP聚合成IP段</li>
-                    <li>输入：192.168.1.1, 192.168.1.2, 192.168.1.3</li>
-                    <li>输出：192.168.1.1-192.168.1.3</li>
-                </ul>
-            </div>
-            """,
-            "aggregate_mixed": """
-            <div style="background: #FFF3E0; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
-                <div style="color: #E65100; font-weight: 600; margin-bottom: 0.3rem;">🔗 IP聚合（混合）</div>
-                <ul style="color: #E65100; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
-                    <li>连续的IP聚合成段，不连续的保留</li>
-                    <li>输入：192.168.1.1, 192.168.1.2, 192.168.1.5, 192.168.1.8, 192.168.1.9</li>
-                    <li>输出：192.168.1.1-192.168.1.2, 192.168.1.5, 192.168.1.8-192.168.1.9</li>
-                </ul>
-            </div>
-            """
-        }
-        
-        st.markdown(mode_descriptions[process_mode], unsafe_allow_html=True)
-        
-        # 验证必填字段
-        validation_passed = True
-        if unit_col is None:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                ⚠️ 请选择「单位字段」🥔
-            </div>
-            """, unsafe_allow_html=True)
-            validation_passed = False
-        
-        if ip_col is None:
-            st.markdown("""
-            <div class="warning-cute" style="margin-top: 1rem;">
-                ⚠️ 请选择「IP/IP段字段」🥔
-            </div>
-            """, unsafe_allow_html=True)
-            validation_passed = False
-        
-        # 执行处理按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        
-        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-        
-        with col_btn2:
-            if st.button("🚀 开始处理", type="primary", use_container_width=True):
-                if unit_col is None:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择「单位字段」 🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
-                
-                if ip_col is None:
-                    st.markdown("""
-                    <div class="error-cute">❌ 请选择「IP/IP段字段」 🥔</div>
-                    """, unsafe_allow_html=True)
-                    return
-                
-                with st.spinner("🍠 正在处理IP数据..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    try:
-                        start_time = time.time()
-                        
-                        status_text.text("🥔 正在解析数据...")
-                        progress_bar.progress(0.1)
-                        
-                        df = st.session_state.ip_df.copy()
-                        total_rows = len(df)
-                        
-                        # 获取其他字段（除了单位和IP字段）
-                        other_cols = [col for col in df.columns if col != unit_col and col != ip_col]
-                        
-                        # 处理结果存储
-                        results = []
-                        error_stats = {}
-                        total_ips = 0
-                        processed_units = 0
-                        
-                        # 按单位分组处理
-                        grouped = df.groupby(unit_col)
-                        
-                        for idx, (unit_name, group) in enumerate(grouped):
-                            progress = 0.1 + (idx / len(grouped)) * 0.7
-                            progress_bar.progress(progress)
-                            status_text.text(f"🥔 处理单位 {idx + 1}/{len(grouped)}...")
-                            
-                            # 获取该单位的其他字段值（取第一条）
-                            other_values = {}
-                            for col in other_cols:
-                                other_values[col] = group[col].iloc[0] if len(group) > 0 else None
-                            
-                            # 收集该单位的所有IP
-                            unit_ips = []
-                            unit_errors = []
-                            
-                            for _, row in group.iterrows():
-                                ip_str = row[ip_col]
-                                ip_list, error = parse_ip_range(ip_str)
+                with col_execute:
+                    if st.button("🚀 开始拆分", use_container_width=True):
+                        with st.spinner("🥔 正在拆分文件，请稍候..."):
+                            try:
+                                # 拆分数据
+                                dfs = []
+                                for i in range(split_count):
+                                    start_idx = i * split_size
+                                    end_idx = min((i + 1) * split_size, total_rows)
+                                    split_df = df.iloc[start_idx:end_idx]
+                                    dfs.append(split_df)
                                 
-                                if error:
-                                    if error not in error_stats:
-                                        error_stats[error] = 0
-                                    error_stats[error] += 1
+                                # 生成下载文件
+                                if file_format == "Excel (.xlsx)":
+                                    zip_data = excel_to_bytes_multi(dfs, file_prefix)
+                                    mime_type = "application/zip"
+                                    file_ext = "zip"
+                                    download_filename = f"{file_prefix}_打包文件.zip"
                                 else:
-                                    unit_ips.extend(ip_list)
+                                    # CSV格式打包
+                                    zip_buffer = BytesIO()
+                                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                                        for i, split_df in enumerate(dfs, 1):
+                                            csv_buffer = StringIO()
+                                            split_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+                                            csv_buffer.seek(0)
+                                            zip_file.writestr(f'{file_prefix}_{i:04d}.csv', csv_buffer.getvalue())
+                                    zip_buffer.seek(0)
+                                    zip_data = zip_buffer.getvalue()
+                                    mime_type = "application/zip"
+                                    file_ext = "zip"
+                                    download_filename = f"{file_prefix}_打包文件.zip"
+                                
+                                st.session_state.split_result = {
+                                    'zip_data': zip_data,
+                                    'filename': download_filename,
+                                    'mime_type': mime_type,
+                                    'split_count': split_count
+                                }
+                                
+                                st.markdown("""
+                                <div class="success-cute">
+                                    ✅ 文件拆分完成！
+                                </div>
+                                """, unsafe_allow_html=True)
                             
-                            # 去重并统计
-                            unit_ips = list(set(unit_ips))
-                            total_ips += len(unit_ips)
-                            
-                            if process_mode == "split":
-                                # IP段拆分：每个IP一行
-                                for ip in sorted(unit_ips):
-                                    result_row = {unit_col: unit_name, ip_col: ip}
-                                    result_row.update(other_values)
-                                    results.append(result_row)
-                            
-                            elif process_mode == "aggregate_continuous":
-                                # IP聚合（连续）：全部聚合成段
-                                if unit_ips:
-                                    aggregated = aggregate_ips_continuous(unit_ips)
-                                    result_row = {unit_col: unit_name, ip_col: ', '.join(aggregated)}
-                                    result_row.update(other_values)
-                                    results.append(result_row)
-                            
-                            else:  # aggregate_mixed
-                                # IP聚合（混合）：连续的成段，不连续的保留
-                                if unit_ips:
-                                    aggregated = aggregate_ips_mixed(unit_ips)
-                                    result_row = {unit_col: unit_name, ip_col: aggregated}
-                                    result_row.update(other_values)
-                                    results.append(result_row)
-                            
-                            processed_units += 1
-                        
-                        progress_bar.progress(0.85)
-                        status_text.text("🍠 正在整理结果...")
-                        
-                        # 构建结果DataFrame
-                        result_df = pd.DataFrame(results)
-                        
-                        # 调整列顺序
-                        final_cols = [unit_col, ip_col] + other_cols
-                        final_cols = [col for col in final_cols if col in result_df.columns]
-                        result_df = result_df[final_cols]
-                        
-                        progress_bar.progress(0.95)
-                        status_text.text("🍠 正在生成统计...")
-                        
-                        processing_time = time.time() - start_time
-                        
-                        # 统计信息
-                        if process_mode == "split":
-                            original_rows = total_rows
-                            result_rows = len(result_df)
-                        else:
-                            original_rows = total_rows
-                            result_rows = len(result_df)
-                        
-                        st.session_state.ip_result = {
-                            'result_df': result_df,
-                            'original_rows': original_rows,
-                            'result_rows': result_rows,
-                            'processed_units': processed_units,
-                            'total_ips': total_ips,
-                            'processing_time': processing_time,
-                            'process_mode': selected_mode,
-                            'error_stats': error_stats,
-                            'unit_col': unit_col,
-                            'ip_col': ip_col
-                        }
-                        
-                        progress_bar.progress(1.0)
-                        status_text.empty()
-                        progress_bar.empty()
-                        
-                        # 显示成功消息
-                        st.markdown("""
-                        <div class="success-cute" style="margin-top: 1rem;">
-                            🎉 IP处理完成！可以下载结果文件了 🥔🎉
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        progress_bar.empty()
-                        status_text.empty()
-                        st.markdown(f"""
-                        <div class="error-cute">
-                            ❌ 处理失败：{str(e)} 🥔
-                        </div>
-                        """, unsafe_allow_html=True)
-    
-    # 显示处理结果
-    if st.session_state.ip_result:
-        result = st.session_state.ip_result
-        result_df = result['result_df']
-        
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 处理结果统计</div></div>', unsafe_allow_html=True)
-        
-        # 统计卡片
-        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-        
-        with stat_col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 原始行数</div>
-                <div class="metric-value">{result['original_rows']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">📝 处理后行数</div>
-                <div class="metric-value">{result['result_rows']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col3:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">🏷️ 涉及单位</div>
-                <div class="metric-value">{result['processed_units']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with stat_col4:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">🖥️ IP总数</div>
-                <div class="metric-value">{result['total_ips']:,}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 显示模式说明
-        mode_labels = {
-            "IP段拆分": "每行一个IP",
-            "IP聚合（连续）": "全部聚合成段",
-            "IP聚合（混合）": "连续成段+单IP"
-        }
-        st.markdown(f"""
-        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
-            <div style="color: #8B4513; font-size: 0.9rem;">
-                <b>⚙️ 处理模式：</b>{result['process_mode']} | 
-                <b>效果：</b>{mode_labels.get(result['process_mode'], '')} | 
-                <b>耗时：</b>{result['processing_time']:.2f}秒
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # 错误统计
-        error_stats = result.get('error_stats', {})
-        if error_stats:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<div class="potato-card"><div class="potato-card-header">⚠️ 异常IP格式（已跳过）</div></div>', unsafe_allow_html=True)
-            
-            error_col1, error_col2 = st.columns([2, 1])
-            
-            with error_col1:
-                error_data = []
-                for error_type, count in sorted(error_stats.items(), key=lambda x: -x[1]):
-                    error_data.append({"跳过类型": error_type, "数量": count})
+                            except Exception as e:
+                                st.markdown(f"""
+                                <div class="error-cute">
+                                    ❌ 拆分失败：{str(e)}
+                                </div>
+                                """, unsafe_allow_html=True)
                 
-                if error_data:
-                    error_df = pd.DataFrame(error_data)
-                    st.dataframe(error_df, use_container_width=True, hide_index=True)
-            
-            with error_col2:
-                st.markdown("""
-                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px;">
-                    <div style="color: #8B4513; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">💡 说明</div>
-                    <ul style="color: #8B4513; font-size: 0.8rem; line-height: 1.6; padding-left: 1.2rem; margin: 0;">
-                        <li>空值行已自动跳过</li>
-                        <li>异常格式已跳过</li>
-                        <li>不影响正常数据</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # 结果预览
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
-        
-        # 筛选功能
-        filter_col1, filter_col2 = st.columns([3, 1])
-        
-        with filter_col1:
-            # 获取唯一单位列表
-            unique_units = result_df[result['unit_col']].unique().tolist()
-            filter_unit = st.multiselect(
-                "🔍 按单位筛选",
-                options=unique_units,
-                default=[],
-                help="筛选特定单位的数据"
-            )
-        
-        with filter_col2:
-            preview_limit = st.selectbox(
-                "📊 预览行数",
-                options=[20, 50, 100],
-                index=0,
-                help="选择预览行数"
-            )
-        
-        # 应用筛选
-        display_df = result_df.copy()
-        if filter_unit:
-            display_df = display_df[display_df[result['unit_col']].isin(filter_unit)]
-        
-        st.markdown(f"📊 共 **{len(display_df):,}** 条记录（原始 **{len(result_df):,}** 条）")
-        
-        preview_rows = min(preview_limit, len(display_df))
-        st.dataframe(display_df.head(preview_rows), use_container_width=True, height=350)
-        
-        st.caption(f"显示前 {preview_rows} 行")
-        
-        # 下载按钮
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
-        
-        # 导出格式选择
-        export_format = st.radio(
-            "📥 选择导出格式",
-            options=["Excel (.xlsx)", "CSV (.csv)"],
-            horizontal=True,
-            help="选择下载文件的格式"
-        )
-        
-        excel_bytes = excel_to_bytes(result_df, "IP处理结果.xlsx")
-        csv_bytes = csv_to_bytes(result_df, "IP处理结果.csv")
-        
-        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
-        
-        with download_col1:
-            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
-        
-        with download_col2:
-            if export_format == "Excel (.xlsx)":
-                st.download_button(
-                    label="📥 下载结果Excel",
-                    data=excel_bytes,
-                    file_name=f"IP处理结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    use_container_width=True
-                )
-            else:
-                st.download_button(
-                    label="📥 下载结果CSV",
-                    data=csv_bytes,
-                    file_name=f"IP处理结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    type="primary",
-                    use_container_width=True
-                )
-        
-        with download_col3:
-            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
-            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 底部
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="footer">
-        <p>Made with 🥔 by 洋芋头</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================
-# 主应用入口
-# ============================================
-def main():
-    """主应用入口"""
-    # 侧边栏导航
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem 0 1rem 0;">
-            <span style="font-size: 3rem;">🥔</span>
-            <h1 style="color: #8B4513; margin: 0.3rem 0; font-size: 1.3rem;">土豆数据工具箱</h1>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # 工具选项列表
-        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器", "🖥️ IP处理工具"]
-        
-        # 初始化或读取当前页面
-        if 'page' not in st.session_state:
-            st.session_state.page = options[0]
-        
-        # 根据 session_state 设置默认选中
-        try:
-            default_index = options.index(st.session_state.page)
-        except ValueError:
-            default_index = 0
-        
-        # 注意：不使用 key 参数，让 index 参数根据 session_state.page 生效
-        page = st.radio(
-            "🧭 选择工具",
-            options=options,
-            index=default_index,
-            label_visibility="collapsed"
-        )
-        
-        # 更新 session_state
-        st.session_state.page = page
-        
-        st.divider()
-        
-        st.markdown("""
-        <div style="text-align: center; padding: 0.5rem;">
-            <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.4 工具箱版</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # 根据选择显示对应页面
-    if page == "🏠 首页":
-        show_home()
-    elif page == "🔄 数据比对回填":
-        show_compare_tool()
-    elif page == "✂️ 数据拆分器":
-        show_split_tool()
-    elif page == "🔗 数据聚合器":
-        show_aggregate_tool()
-    elif page == "🌐 域名提取器":
-        show_domain_tool()
-    elif page == "🌳 单位树构建器":
-        show_unit_tree_tool()
-    elif page == "🖥️ IP处理工具":
-        show_ip_tool()
-
-
-if __name__ == "__main__":
-    main()
+                with col_clear:
+                    if st.button("🧹 清空数据", use_container_width=True):
+                        st.session_state.split_df = None
+                        st.session_state.split_result = None
+                        st.rerun()
+                
+                # 显示下载按钮
+                if st.session_state.split_result:
+                    st.markdown("<hr>", unsafe_allow_html=True)
+                    st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载拆分文件</div></div>', unsafe_allow_html=True)
+                    
+                    st.markdown(f"""
+                    <div style="background: #E8F5E9; padding: 1rem; border-radius: 12px; margin: 1rem 0; text-align: center;">
+                        <div style="color: #2E7D32; font-weight: 600; font-size: 1.1rem;">
+                            🎉 成功生成 {st.session_state.split_result['split_count']} 个文件
+                        </div>
+                        <div style="color: #006400; margin-top: 0.5rem;">
+                            点击下方按钮下载ZIP打包文件
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.download_button(
+                        label="📥 下载打包文件",
+                        data

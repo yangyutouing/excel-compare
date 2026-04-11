@@ -721,7 +721,7 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-           v5.0当前版本
+           v6.0当前版本
             1、新增数据差异行工具
             2、支持逐行比对两列数据
             3、差异行用浅红色高亮显示

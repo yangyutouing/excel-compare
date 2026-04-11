@@ -332,6 +332,69 @@ def excel_to_bytes(df: pd.DataFrame, filename: str = "result.xlsx") -> bytes:
     return output.getvalue()
 
 
+def compare_columns(df: pd.DataFrame, col1: str, col2: str) -> list:
+    """比对两列数据，返回差异行索引列表
+    
+    Args:
+        df: 数据DataFrame
+        col1: 第一列名称
+        col2: 第二列名称
+    
+    Returns:
+        差异行索引列表
+    """
+    diff_indices = []
+    for idx, row in df.iterrows():
+        val1 = str(row[col1]).strip() if pd.notna(row[col1]) else ''
+        val2 = str(row[col2]).strip() if pd.notna(row[col2]) else ''
+        if val1 != val2:
+            diff_indices.append(idx)
+    return diff_indices
+
+
+def export_with_highlight(df: pd.DataFrame, diff_indices: list, filename: str = "diff_result.xlsx") -> bytes:
+    """导出带高亮的Excel文件
+    
+    Args:
+        df: 数据DataFrame
+        diff_indices: 差异行索引列表
+        filename: 文件名
+    
+    Returns:
+        Excel文件字节流
+    """
+    from openpyxl.styles import PatternFill
+    
+    output = BytesIO()
+    
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='数据比对结果')
+    
+    output.seek(0)
+    
+    # 使用 openpyxl 打开并设置样式
+    from openpyxl import load_workbook
+    
+    wb = load_workbook(output)
+    ws = wb.active
+    
+    # 差异行用浅红色背景 (#FFCCCC)
+    highlight_fill = PatternFill(start_color='FFCCCC', end_color='FFCCCC', fill_type='solid')
+    
+    # 获取差异行号（DataFrame索引 + 2，因为Excel有表头行）
+    for idx in diff_indices:
+        row_num = idx + 2  # +2 因为：1是表头，索引从0开始
+        for cell in ws[row_num]:
+            cell.fill = highlight_fill
+    
+    # 保存到新的BytesIO
+    result = BytesIO()
+    wb.save(result)
+    result.seek(0)
+    
+    return result.getvalue()
+
+
 def display_column_preview(df: pd.DataFrame):
     """显示列预览信息"""
     col1, col2, col3 = st.columns(3)
@@ -621,18 +684,33 @@ def show_home():
             st.session_state.page = "🖥️ IP处理工具"
             st.rerun()
     
-    # 更多工具
+    # 工具4：数据差异行 + 更多工具
     st.markdown("---")
     col7, col8 = st.columns(2, gap="large")
     
     with col7:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🔍</div>
+            <div class="tool-title">数据差异行</div>
+            <div class="tool-desc">逐行比对两列数据，快速找出差异</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                📁 上传数据 → 选择比对列 → 高亮差异行
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_diff_tool", use_container_width=True):
+            st.session_state.page = "🔍 数据差异行"
+            st.rerun()
+    
+    with col8:
         st.markdown("""
         <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
             <div class="tool-icon">🚧</div>
             <div class="tool-title">更多工具...</div>
             <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 洋芋头正在努力种植新的工具...
+                🥔 土豆正在努力种植新的工具...
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -642,20 +720,26 @@ def show_home():
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
-
-            v5.0当前版本
+        
+           v5.0当前版本
+            1、新增数据差异行工具
+            2、支持逐行比对两列数据
+            3、差异行用浅红色高亮显示
+            4、导出带高亮的Excel文件
+            
+            v5.0工具箱升升升级版
              1、新增IP处理工具功能
              2、支持IP段拆分（CIDR和范围格式）
              3、支持IP聚合（连续和混合模式）
              4、同一单位数据隔离处理
              
-            v4.0单位树版
+            v4.0工具箱升升级版
              1、新增单位树构建器功能
              2、支持10种分组自动判定
              3、智能上级节点判定
              4、支持按分组和区域筛选预览
 
-            v3.0域名提取器版
+            v3.0工具箱升级版
              1、新增域名提取器功能
              2、支持政务类域名和普通域名
              3、支持提取主域名和子域名
@@ -669,8 +753,7 @@ def show_home():
              1、数据比对回填功能
              3、可爱土豆风格界面
 
-        天呐！为什么要加版本说明！不想写，名字太难想了！
-
+        扣1助力洋芋头挖土豆！
     """, unsafe_allow_html=True)
     
     # 底部装饰
@@ -4252,6 +4335,475 @@ def show_ip_tool():
 
 
 # ============================================
+# 页面8：数据差异行工具
+# ============================================
+def show_diff_tool():
+    """显示数据差异行工具"""
+    st.markdown("""
+    <div class="potato-header">
+        <h1 class="potato-title">🔍 数据差异行</h1>
+        <p class="potato-subtitle">✨ 逐行比对两列数据，快速找出差异 ✨</p>
+    </div>
+    
+    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">逐行比对同一文件中两列数据的值，快速标记并导出差异行。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel/CSV文件 → ② 选择比对列1 → ③ 选择比对列2 → ④ 执行比对 → ⑤ 查看结果与下载
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 比对规则说明
+    st.markdown("""
+    <div class="potato-card" style="margin-bottom: 1rem;">
+        <div class="potato-card-header">📖 比对规则说明</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
+            <div style="flex: 1; min-width: 280px; background: #FFF8DC; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔍 比对逻辑</div>
+                <ul style="color: #8B4513; font-size: 0.85rem; line-height: 1.8; padding-left: 1.2rem; margin: 0;">
+                    <li>逐行比对两列数据的值</li>
+                    <li>值不同 → 标记为差异行</li>
+                    <li>自动去除首尾空格</li>
+                    <li>空值视为空字符串进行比对</li>
+                </ul>
+            </div>
+            <div style="flex: 1; min-width: 280px; background: #FFEBEE; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🎨 高亮规则</div>
+                <ul style="color: #8B4513; font-size: 0.85rem; line-height: 1.8; padding-left: 1.2rem; margin: 0;">
+                    <li>差异行用 <span style="background: #FFCCCC; padding: 0.1rem 0.4rem; border-radius: 4px;">浅红色背景</span> 高亮</li>
+                    <li>页面展示和导出Excel均可高亮</li>
+                    <li>方便快速定位差异位置</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 初始化session state
+    if 'diff_df' not in st.session_state:
+        st.session_state.diff_df = None
+    if 'diff_result' not in st.session_state:
+        st.session_state.diff_result = None
+    
+    # 使用说明
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0;">
+            <span style="font-size: 2.5rem;">🥔</span>
+            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="potato-card" style="margin-bottom: 0.8rem;">
+            <div class="potato-card-header">🌱 操作步骤</div>
+            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>上传 <b>Excel/CSV文件</b> 📁</li>
+                <li>选择 <b>比对列1</b> 📊</li>
+                <li>选择 <b>比对列2</b> 📊</li>
+                <li>点击 <b>开始比对</b> 🔍</li>
+                <li>查看 <b>差异结果</b> 👁️</li>
+                <li>下载 <b>高亮Excel</b> 📥</li>
+            </ol>
+        </div>
+        
+        <div class="potato-card">
+            <div class="potato-card-header">💡 温馨提示</div>
+            <ul style="color: #8B4513; line-height: 1.7; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li>支持 .xlsx .xls .csv 格式</li>
+                <li>CSV自动检测编码</li>
+                <li>空值与任何值都视为不同</li>
+                <li>导出Excel保留高亮样式</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem;">
+            <span style="font-size: 2rem;">🥔 🌿</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("🥔 数据差异行")
+    
+    # 文件上传区域
+    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传Excel/CSV文件</div></div>', unsafe_allow_html=True)
+    
+    file = st.file_uploader(
+        "点击上传或拖拽Excel/CSV文件到此处",
+        type=['xlsx', 'xls', 'csv'],
+        help="🥔 上传包含要比对数据的文件",
+        key="diff_file_uploader"
+    )
+    
+    if file:
+        with st.spinner("🥔 加载中..."):
+            df = load_data_file(file)
+            if df is not None:
+                st.session_state.diff_df = df
+                st.session_state.diff_result = None
+                st.markdown("""
+                <div class="success-cute">✅ 文件加载成功</div>
+                """, unsafe_allow_html=True)
+                
+                # 显示文件信息
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
+                
+                info_col1, info_col2, info_col3 = st.columns(3)
+                
+                with info_col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📝 总行数</div>
+                        <div class="metric-value">{len(df):,}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📊 总列数</div>
+                        <div class="metric-value">{len(df.columns)}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col3:
+                    file_size_mb = file.size / (1024 * 1024)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">💾 文件大小</div>
+                        <div class="metric-value">{file_size_mb:.2f} MB</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # 显示所有字段
+                st.markdown("**📋 可用字段：**")
+                fields_display = "、".join([f"`{col}`" for col in df.columns])
+                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
+                
+                # 数据预览
+                with st.expander("👁️ 预览数据（前20行）"):
+                    st.dataframe(df.head(20), use_container_width=True, height=300)
+    
+    # 字段配置
+    if st.session_state.diff_df is not None:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 比对配置</div></div>', unsafe_allow_html=True)
+        
+        cols = list(st.session_state.diff_df.columns)
+        
+        config_col1, config_col2 = st.columns(2)
+        
+        with config_col1:
+            col1 = st.selectbox(
+                "📊 比对列1",
+                options=["（请选择）"] + cols,
+                index=0,
+                help="选择要比对的第一列"
+            )
+            if col1 == "（请选择）":
+                col1 = None
+        
+        with config_col2:
+            col2 = st.selectbox(
+                "📊 比对列2",
+                options=["（请选择）"] + cols,
+                index=0,
+                help="选择要比对的第二列"
+            )
+            if col2 == "（请选择）":
+                col2 = None
+        
+        # 字段预览
+        if col1 or col2:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            
+            preview_col1, preview_col2 = st.columns(2)
+            
+            with preview_col1:
+                if col1:
+                    st.markdown(f"**📊 列1 `{col1}` 预览**")
+                    preview_df = st.session_state.diff_df[col1].dropna().head(10)
+                    st.write(preview_df.tolist())
+                    null_count1 = st.session_state.diff_df[col1].isnull().sum()
+                    st.caption(f"📊 共 {len(st.session_state.diff_df):,} 条，空值 {null_count1:,} 条")
+            
+            with preview_col2:
+                if col2:
+                    st.markdown(f"**📊 列2 `{col2}` 预览**")
+                    preview_df = st.session_state.diff_df[col2].dropna().head(10)
+                    st.write(preview_df.tolist())
+                    null_count2 = st.session_state.diff_df[col2].isnull().sum()
+                    st.caption(f"📊 共 {len(st.session_state.diff_df):,} 条，空值 {null_count2:,} 条")
+        
+        # 执行比对按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        
+        with col_btn2:
+            if st.button("🔍 开始比对", type="primary", use_container_width=True):
+                if not col1:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请选择「比对列1」 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                if not col2:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请选择「比对列2」 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                if col1 == col2:
+                    st.markdown("""
+                    <div class="error-cute">❌ 比对列1和比对列2不能相同 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                with st.spinner("🍠 正在比对数据..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        start_time = time.time()
+                        
+                        status_text.text("🥔 正在比对数据...")
+                        progress_bar.progress(0.3)
+                        
+                        df = st.session_state.diff_df.copy()
+                        
+                        # 执行比对
+                        diff_indices = compare_columns(df, col1, col2)
+                        
+                        progress_bar.progress(0.7)
+                        status_text.text("🍠 正在整理结果...")
+                        
+                        # 统计信息
+                        total_rows = len(df)
+                        diff_count = len(diff_indices)
+                        same_count = total_rows - diff_count
+                        diff_rate = (diff_count / total_rows * 100) if total_rows > 0 else 0
+                        
+                        progress_bar.progress(1.0)
+                        status_text.empty()
+                        progress_bar.empty()
+                        
+                        processing_time = time.time() - start_time
+                        
+                        st.session_state.diff_result = {
+                            'df': df,
+                            'col1': col1,
+                            'col2': col2,
+                            'diff_indices': diff_indices,
+                            'total_rows': total_rows,
+                            'diff_count': diff_count,
+                            'same_count': same_count,
+                            'diff_rate': diff_rate,
+                            'processing_time': processing_time
+                        }
+                        
+                        # 显示成功消息
+                        st.markdown("""
+                        <div class="success-cute" style="margin-top: 1rem;">
+                            🎉 比对完成！可以查看结果和下载了 🥔🎉
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.markdown(f"""
+                        <div class="error-cute">
+                            ❌ 比对失败：{str(e)} 🥔
+                        </div>
+                        """, unsafe_allow_html=True)
+    
+    # 显示比对结果
+    if st.session_state.diff_result:
+        result = st.session_state.diff_result
+        df = result['df']
+        diff_indices = result['diff_indices']
+        
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 比对结果统计</div></div>', unsafe_allow_html=True)
+        
+        # 统计卡片
+        stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
+        
+        with stat_col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 总行数</div>
+                <div class="metric-value">{result['total_rows']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">✅ 相同行</div>
+                <div class="metric-value" style="color: #228B22;">{result['same_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">❌ 差异行</div>
+                <div class="metric-value" style="color: #FF6347;">{result['diff_count']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col4:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📊 差异比例</div>
+                <div class="metric-value">{result['diff_rate']:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col5:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">⏱️ 处理时间</div>
+                <div class="metric-value">{result['processing_time']:.2f}s</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 显示比对配置
+        st.markdown(f"""
+        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
+            <div style="color: #8B4513; font-size: 0.9rem;">
+                <b>⚙️ 比对配置：</b>
+                比对列1：<code>{result['col1']}</code> | 
+                比对列2：<code>{result['col2']}</code>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 差异效果提示
+        if result['diff_rate'] == 0:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                🎉 太棒了！两列数据完全一致，没有差异 🥔🎉
+            </div>
+            """, unsafe_allow_html=True)
+        elif result['diff_rate'] <= 10:
+            st.markdown(f"""
+            <div class="success-cute" style="margin-top: 1rem;">
+                😊 不错的效果！差异比例仅 <strong>{result['diff_rate']:.1f}%</strong> 🍠
+            </div>
+            """, unsafe_allow_html=True)
+        elif result['diff_rate'] <= 50:
+            st.markdown(f"""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                🤔 有 <strong>{result['diff_rate']:.1f}%</strong> 的行存在差异 🥔
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                😅 差异比例较高 <strong>{result['diff_rate']:.1f}%</strong>，请检查两列数据的含义是否正确 🥔
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 结果展示
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览（差异行高亮显示）</div></div>', unsafe_allow_html=True)
+        
+        # 显示模式切换
+        view_mode = st.radio(
+            "📋 显示模式",
+            options=["显示全部数据", "仅显示差异行"],
+            horizontal=True,
+            help="选择要显示的数据范围"
+        )
+        
+        # 筛选数据
+        if view_mode == "仅显示差异行":
+            display_df = df.iloc[diff_indices].copy()
+        else:
+            display_df = df.copy()
+        
+        st.markdown(f"📊 共 **{len(display_df):,}** 条记录（原始 **{len(df):,}** 条）")
+        
+        # 使用pandas Styler进行高亮显示
+        def highlight_diff_rows(row):
+            """高亮差异行"""
+            # 获取行的原始索引
+            row_idx = row.name
+            if row_idx in diff_indices:
+                return ['background-color: #FFCCCC'] * len(row)
+            else:
+                return [''] * len(row)
+        
+        # 应用高亮样式
+        styled_df = display_df.style.apply(highlight_diff_rows, axis=1)
+        
+        # 显示高亮表格
+        preview_rows = min(50, len(display_df))
+        st.dataframe(styled_df.head(preview_rows), use_container_width=True, height=350)
+        
+        st.caption(f"💡 差异行已用浅红色背景高亮显示 | 显示前 {preview_rows} 行")
+        
+        # 下载按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 导出结果</div></div>', unsafe_allow_html=True)
+        
+        # 生成带高亮的Excel
+        excel_bytes = export_with_highlight(df, diff_indices, "差异比对结果.xlsx")
+        
+        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
+        
+        with download_col1:
+            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
+        
+        with download_col2:
+            st.download_button(
+                label="📥 下载带高亮的Excel",
+                data=excel_bytes,
+                file_name=f"差异比对结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        
+        with download_col3:
+            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
+            📊 数据：<strong>{len(df):,}</strong> 行 × <strong>{len(df.columns)}</strong> 列 | 
+            🎨 差异行：<strong>{len(diff_indices):,}</strong> 行已高亮
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 底部
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="footer">
+        <p>Made with 🥔 by 洋芋头</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================
 # 主应用入口
 # ============================================
 def main():
@@ -4268,7 +4820,7 @@ def main():
         st.divider()
         
         # 工具选项列表
-        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器", "🖥️ IP处理工具"]
+        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器", "🖥️ IP处理工具", "🔍 数据差异行"]
         
         # 初始化或读取当前页面
         if 'page' not in st.session_state:
@@ -4296,7 +4848,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.4 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.5 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -4315,6 +4867,8 @@ def main():
         show_unit_tree_tool()
     elif page == "🖥️ IP处理工具":
         show_ip_tool()
+    elif page == "🔍 数据差异行":
+        show_diff_tool()
 
 
 if __name__ == "__main__":

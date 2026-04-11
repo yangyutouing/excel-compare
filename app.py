@@ -632,7 +632,7 @@ def show_home():
             <div class="tool-title">更多工具...</div>
             <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 土豆正在努力种植新的工具...
+                🥔 洋芋头正在努力种植新的工具...
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -642,59 +642,35 @@ def show_home():
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
-        
-        <div style="margin-top: 1rem; color: #8B4513;">
-            <p style="margin: 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🖥️ v2.4</span>
-                当前版本
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>新增IP处理工具功能</li>
-                <li>支持IP段拆分（CIDR和范围格式）</li>
-                <li>支持IP聚合（连续和混合模式）</li>
-                <li>同一单位数据隔离处理</li>
-            </ul>
+
+            v5.0当前版本
+             1、新增IP处理工具功能
+             2、支持IP段拆分（CIDR和范围格式）
+             3、支持IP聚合（连续和混合模式）
+             4、同一单位数据隔离处理
+             
+            v4.0单位树版
+             1、新增单位树构建器功能
+             2、支持10种分组自动判定
+             3、智能上级节点判定
+             4、支持按分组和区域筛选预览
+
+            v3.0域名提取器版
+             1、新增域名提取器功能
+             2、支持政务类域名和普通域名
+             3、支持提取主域名和子域名
             
-            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #32CD32, #228B22); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🌳 v2.3</span>
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>新增单位树构建器功能</li>
-                <li>支持10种分组自动判定</li>
-                <li>智能上级节点判定</li>
-                <li>支持按分组和区域筛选预览</li>
-            </ul>
-            
-            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.2</span>
-                域名提取器版
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>新增域名提取器功能</li>
-                <li>支持政务类域名和普通域名</li>
-                <li>支持提取主域名和子域名</li>
-            </ul>
-            
-            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
-                <span style="background: #D2691E; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🍠 v2.0</span>
-                工具箱版
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>重构为多工具集架构</li>
-                <li>新增数据拆分器功能</li>
-                <li>土豆主题UI优化</li>
-            </ul>
-            
-            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
-                <span style="background: #8B4513; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v1.0</span>
-                初始版本
-            </p>
-            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
-                <li>数据比对回填功能</li>
-                <li>可爱土豆风格界面</li>
-            </ul>
-        </div>
-    </div>
+            v2.0工具箱版
+             1、重构为多工具集架构
+             2、新增数据拆分器功能
+             3、土豆主题UI优化
+
+            v1.0初始版本
+             1、数据比对回填功能
+             3、可爱土豆风格界面
+
+        天呐！为什么要加版本说明！不想写，名字太难想了！
+
     """, unsafe_allow_html=True)
     
     # 底部装饰

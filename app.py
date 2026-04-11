@@ -439,7 +439,7 @@ def show_home():
             st.session_state.page = "✂️ 数据拆分器"
             st.rerun()
     
-    # 工具2：数据聚合器
+    # 工具2：数据聚合器 + 单位树构建器
     col3, col4 = st.columns(2, gap="large")
     
     with col3:
@@ -457,10 +457,7 @@ def show_home():
             st.session_state.page = "🔗 数据聚合器"
             st.rerun()
     
-    # 工具5：单位树构建器
-    col7, col8 = st.columns(2, gap="large")
-    
-    with col7:
+    with col4:
         st.markdown("""
         <div class="tool-card" style="padding-bottom: 0.5rem;">
             <div class="tool-icon">🌳</div>
@@ -475,7 +472,7 @@ def show_home():
             st.session_state.page = "🌳 单位树构建器"
             st.rerun()
     
-    # 工具4：域名提取器
+    # 工具3：域名提取器
     st.markdown("---")
     col5, col6 = st.columns(2, gap="large")
     
@@ -512,7 +509,10 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-                v2.3当前版本
+        <div style="margin-top: 1rem; color: #8B4513;">
+            <p style="margin: 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #32CD32, #228B22); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🌳 v2.3</span>
+                当前版本
             </p>
             <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
                 <li>新增单位树构建器功能</li>

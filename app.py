@@ -439,7 +439,7 @@ def show_home():
             st.session_state.page = "✂️ 数据拆分器"
             st.rerun()
     
-    # 工具2：数据聚合器 + 单位树构建器
+    # 工具2：数据聚合器 + 域名提取器
     col3, col4 = st.columns(2, gap="large")
     
     with col3:
@@ -460,25 +460,6 @@ def show_home():
     with col4:
         st.markdown("""
         <div class="tool-card" style="padding-bottom: 0.5rem;">
-            <div class="tool-icon">🌳</div>
-            <div class="tool-title">单位树构建器</div>
-            <div class="tool-desc">根据单位数据自动构建组织架构树</div>
-            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                📁 上传数据 → 字段映射 → 自动分组与上级判定
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("🚀 进入工具", key="go_unit_tree", use_container_width=True):
-            st.session_state.page = "🌳 单位树构建器"
-            st.rerun()
-    
-    # 工具3：域名提取器
-    st.markdown("---")
-    col5, col6 = st.columns(2, gap="large")
-    
-    with col5:
-        st.markdown("""
-        <div class="tool-card" style="padding-bottom: 0.5rem;">
             <div class="tool-icon">🌐</div>
             <div class="tool-title">域名提取器</div>
             <div class="tool-desc">从URL中提取主域名或子域名</div>
@@ -489,6 +470,25 @@ def show_home():
         """, unsafe_allow_html=True)
         if st.button("🚀 进入工具", key="go_domain", use_container_width=True):
             st.session_state.page = "🌐 域名提取器"
+            st.rerun()
+    
+    # 工具3：单位树构建器
+    st.markdown("---")
+    col5, col6 = st.columns(2, gap="large")
+    
+    with col5:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🌳</div>
+            <div class="tool-title">单位树构建器</div>
+            <div class="tool-desc">根据单位数据自动构建组织架构树</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                📁 上传数据 → 字段映射 → 自动分组与上级判定
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 进入工具", key="go_unit_tree", use_container_width=True):
+            st.session_state.page = "🌳 单位树构建器"
             st.rerun()
     
     with col6:
@@ -2990,7 +2990,7 @@ def show_unit_tree_tool():
             unit_name_col = st.selectbox(
                 "🏷️ 单位名称字段（必填）",
                 options=["（请选择）"] + cols,
-                index=cols.index(default_unit) + 1 if default_unit in cols else 0,
+                index=(cols.index(default_unit) + 1) if default_unit and default_unit in cols else 0,
                 help="选择包含单位名称的列"
             )
             if unit_name_col == "（请选择）":
@@ -2999,7 +2999,7 @@ def show_unit_tree_tool():
             unit_type_col = st.selectbox(
                 "📋 单位性质字段",
                 options=["（不映射）"] + cols,
-                index=cols.index(default_type) + 1 if default_type in cols else 0,
+                index=(cols.index(default_type) + 1) if default_type and default_type in cols else 0,
                 help="选择包含单位性质的列（如：党政机关、企业、国有企业等）"
             )
             if unit_type_col == "（不映射）":
@@ -3009,7 +3009,7 @@ def show_unit_tree_tool():
             admin_unit_col = st.selectbox(
                 "🔗 行政主管单位字段",
                 options=["（不映射）"] + cols,
-                index=cols.index(default_admin) + 1 if default_admin in cols else 0,
+                index=(cols.index(default_admin) + 1) if default_admin and default_admin in cols else 0,
                 help="选择包含行政主管单位的列"
             )
             if admin_unit_col == "（不映射）":
@@ -3018,7 +3018,7 @@ def show_unit_tree_tool():
             area_col = st.selectbox(
                 "🗺️ 区域字段",
                 options=["（不映射）"] + cols,
-                index=cols.index(default_area) + 1 if default_area in cols else 0,
+                index=(cols.index(default_area) + 1) if default_area and default_area in cols else 0,
                 help="选择包含区域/区县名称的列"
             )
             if area_col == "（不映射）":

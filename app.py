@@ -3034,7 +3034,7 @@ def show_unit_tree_tool():
         
         # 字段预览
         if unit_name_col:
-            st.markdown("<hr>", unsafe_allow=True)
+            st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown(f"**🥔 单位名称字段预览**")
             
             preview_df = st.session_state.tree_df[unit_name_col].dropna().head(10)

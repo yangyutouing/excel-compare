@@ -621,6 +621,21 @@ def show_home():
             st.session_state.page = "🖥️ IP处理工具"
             st.rerun()
     
+    # 更多工具（敬请期待）
+    st.markdown("---")
+    col_more = st.columns([1, 2, 1])[1]
+    
+    with col_more:
+        st.markdown("""
+        <div class="tool-card" style="padding: 1.5rem 1.2rem; background: linear-gradient(145deg, #FFFEF9 0%, #FFF8E6 100%); border: 2px dashed #DEB887;">
+            <div class="tool-icon">📦</div>
+            <div class="tool-title">更多工具……</div>
+            <div class="tool-desc" style="margin-top: 0.3rem;">洋芋头正在努力挖土豆中，敬请期待</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("💡 提交功能建议", key="go_more_tools", use_container_width=True):
+            st.info("💡 如有功能建议或需求，欢迎联系开发者！")
+    
     # 版本更新
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">

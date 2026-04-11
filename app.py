@@ -8,6 +8,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import ipaddress
 from io import BytesIO, StringIO
 import time
 import os
@@ -377,6 +378,120 @@ def excel_to_bytes_multi(dfs: list, base_filename: str = "data") -> bytes:
 
 
 # ============================================
+# IP处理工具函数
+# ============================================
+def parse_ip_range(ip_str: str) -> tuple[list, str]:
+    """解析IP段，返回 (IP列表, 错误信息)
+    
+    支持格式：
+    - 单个IP：192.168.1.1
+    - 范围格式：192.168.1.1-192.168.1.10
+    - CIDR格式：192.168.1.0/24
+    
+    Args:
+        ip_str: IP字符串
+    
+    Returns:
+        (IP列表, 错误信息) - 成功时错误信息为None
+    """
+    if pd.isna(ip_str) or not str(ip_str).strip():
+        return [], "空值"
+    
+    ip_str = str(ip_str).strip()
+    
+    if not ip_str:
+        return [], "空值"
+    
+    try:
+        # CIDR格式
+        if '/' in ip_str:
+            network = ipaddress.ip_network(ip_str, strict=False)
+            return [str(ip) for ip in network.hosts()], None
+        
+        # 范围格式
+        if '-' in ip_str:
+            parts = ip_str.split('-')
+            if len(parts) != 2:
+                return [], "范围格式错误（应使用-连接）"
+            
+            start_ip = parts[0].strip()
+            end_ip = parts[1].strip()
+            
+            start = int(ipaddress.IPv4Address(start_ip))
+            end = int(ipaddress.IPv4Address(end_ip))
+            
+            if start > end:
+                return [], "起始IP大于结束IP"
+            
+            return [str(ipaddress.IPv4Address(ip)) for ip in range(start, end + 1)], None
+        
+        # 单个IP
+        ipaddress.IPv4Address(ip_str)
+        return [ip_str], None
+    
+    except ipaddress.AddressValueError as e:
+        return [], f"IP格式无效: {str(e)}"
+    except ValueError as e:
+        return [], f"解析错误: {str(e)}"
+    except Exception as e:
+        return [], f"未知错误: {str(e)}"
+
+
+def aggregate_ips_continuous(ip_list: list) -> list:
+    """聚合连续IP为IP段（连续模式）
+    
+    将连续的IP聚合成IP段，非连续的保留
+    
+    Args:
+        ip_list: IP列表
+    
+    Returns:
+        聚合后的IP列表（连续的成段，不连续的保留单个IP）
+    """
+    if not ip_list:
+        return []
+    
+    # 转换为整数并排序
+    ip_ints = sorted([int(ipaddress.IPv4Address(ip)) for ip in ip_list])
+    
+    ranges = []
+    start = ip_ints[0]
+    end = ip_ints[0]
+    
+    for ip in ip_ints[1:]:
+        if ip == end + 1:
+            end = ip
+        else:
+            if start == end:
+                ranges.append(str(ipaddress.IPv4Address(start)))
+            else:
+                ranges.append(f"{ipaddress.IPv4Address(start)}-{ipaddress.IPv4Address(end)}")
+            start = ip
+            end = ip
+    
+    # 添加最后一个范围
+    if start == end:
+        ranges.append(str(ipaddress.IPv4Address(start)))
+    else:
+        ranges.append(f"{ipaddress.IPv4Address(start)}-{ipaddress.IPv4Address(end)}")
+    
+    return ranges
+
+
+def aggregate_ips_mixed(ip_list: list) -> str:
+    """聚合IP（混合模式：连续的成段，不连续的保留）
+    
+    Args:
+        ip_list: IP列表
+    
+    Returns:
+        用逗号分隔的聚合结果
+    """
+    ranges = aggregate_ips_continuous(ip_list)
+    return ', '.join(ranges)
+
+
+# ============================================
 # 页面1：首页
 # ============================================
 def show_home():
@@ -472,7 +587,7 @@ def show_home():
             st.session_state.page = "🌐 域名提取器"
             st.rerun()
     
-    # 工具3：单位树构建器
+    # 工具3：单位树构建器 + IP处理工具
     st.markdown("---")
     col5, col6 = st.columns(2, gap="large")
     
@@ -493,16 +608,18 @@ def show_home():
     
     with col6:
         st.markdown("""
-        <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
-            <div class="tool-icon">🚧</div>
-            <div class="tool-title">更多工具...</div>
-            <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🖥️</div>
+            <div class="tool-title">IP处理工具</div>
+            <div class="tool-desc">IP段拆分与聚合，支持CIDR和范围格式</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 土豆正在努力种植新的工具...
+                📁 上传数据 → 选择模式 → IP拆分/聚合
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
+        if st.button("🚀 进入工具", key="go_ip_tool", use_container_width=True):
+            st.session_state.page = "🖥️ IP处理工具"
+            st.rerun()
     
     # 版本更新
     st.markdown("""
@@ -511,8 +628,18 @@ def show_home():
         
         <div style="margin-top: 1rem; color: #8B4513;">
             <p style="margin: 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #32CD32, #228B22); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🌳 v2.3</span>
+                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🖥️ v2.4</span>
                 当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增IP处理工具功能</li>
+                <li>支持IP段拆分（CIDR和范围格式）</li>
+                <li>支持IP聚合（连续和混合模式）</li>
+                <li>同一单位数据隔离处理</li>
+            </ul>
+            
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #32CD32, #228B22); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🌳 v2.3</span>
             </p>
             <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
                 <li>新增单位树构建器功能</li>
@@ -3034,7 +3161,7 @@ def show_unit_tree_tool():
         
         # 字段预览
         if unit_name_col:
-            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown("<hr>", unsafe_allow=True)
             st.markdown(f"**🥔 单位名称字段预览**")
             
             preview_df = st.session_state.tree_df[unit_name_col].dropna().head(10)
@@ -3439,6 +3566,699 @@ def show_unit_tree_tool():
 
 
 # ============================================
+# 页面7：IP处理工具
+# ============================================
+def show_ip_tool():
+    """显示IP处理工具"""
+    st.markdown("""
+    <div class="potato-header">
+        <h1 class="potato-title">🖥️ IP处理工具</h1>
+        <p class="potato-subtitle">✨ IP段拆分与聚合，让IP管理更高效 ✨</p>
+    </div>
+    
+    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">对IP/IP段进行拆分或聚合处理，支持CIDR格式和范围格式，方便IP数据整理。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel/CSV文件 → ② 字段映射 → ③ 选择处理模式 → ④ 执行处理 → ⑤ 下载结果
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 模式说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin-bottom: 1rem;">
+        <div class="potato-card-header">📖 处理模式说明</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem;">
+            <div style="flex: 1; min-width: 280px; background: #FFF8DC; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔀 IP段拆分</div>
+                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
+                    <tr><td><b>范围格式：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.3</code></td></tr>
+                    <tr><td><b>→</b></td><td>3行：192.168.1.1, 192.168.1.2, 192.168.1.3</td></tr>
+                    <tr><td><b>CIDR格式：</b></td><td><code style="background: #FFE4C4; padding: 0.1rem 0.3rem;">192.168.1.0/30</code></td></tr>
+                    <tr><td><b>→</b></td><td>2行：192.168.1.1, 192.168.1.2</td></tr>
+                </table>
+            </div>
+            <div style="flex: 1; min-width: 280px; background: #E8F5E9; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔗 IP聚合（连续）</div>
+                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
+                    <tr><td><b>输入：</b></td><td>192.168.1.1, 192.168.1.2, 192.168.1.3</td></tr>
+                    <tr><td><b>→</b></td><td>全部聚合成段</td></tr>
+                    <tr><td><b>输出：</b></td><td><code style="background: #C8E6C9; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.3</code></td></tr>
+                </table>
+            </div>
+            <div style="flex: 1; min-width: 280px; background: #FFF3E0; padding: 0.8rem; border-radius: 10px;">
+                <div style="font-weight: 700; color: #8B4513; margin-bottom: 0.5rem;">🔗 IP聚合（混合）</div>
+                <table style="width: 100%; font-size: 0.85rem; color: #8B4513;">
+                    <tr><td><b>输入：</b></td><td>192.168.1.1, 192.168.1.2, 192.168.1.5, 192.168.1.8, 192.168.1.9</td></tr>
+                    <tr><td><b>→</b></td><td>连续的成段，不连续的保留</td></tr>
+                    <tr><td><b>输出：</b></td><td><code style="background: #FFE0B2; padding: 0.1rem 0.3rem;">192.168.1.1-192.168.1.2, 192.168.1.5, 192.168.1.8-192.168.1.9</code></td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 初始化session state
+    if 'ip_df' not in st.session_state:
+        st.session_state.ip_df = None
+    if 'ip_result' not in st.session_state:
+        st.session_state.ip_result = None
+    
+    # 使用说明
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem 0;">
+            <span style="font-size: 2.5rem;">🥔</span>
+            <h2 style="color: #8B4513; margin: 0.3rem 0;">使用说明</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div class="potato-card" style="margin-bottom: 0.8rem;">
+            <div class="potato-card-header">🌱 操作步骤</div>
+            <ol style="color: #8B4513; line-height: 1.8; font-size: 0.9rem; padding-left: 1.2rem;">
+                <li>上传 <b>Excel/CSV文件</b> 📁</li>
+                <li>映射 <b>单位字段</b> 🏷️</li>
+                <li>映射 <b>IP/IP段字段</b> 🖥️</li>
+                <li>选择 <b>处理模式</b> ⚙️</li>
+                <li>点击 <b>开始处理</b> 🚀</li>
+                <li>下载 <b>结果文件</b> 📥</li>
+            </ol>
+        </div>
+        
+        <div class="potato-card">
+            <div class="potato-card-header">💡 核心规则</div>
+            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li>同一单位下的IP才能处理</li>
+                <li>不同单位数据隔离</li>
+                <li>支持异常格式跳过</li>
+            </ul>
+        </div>
+        
+        <div class="potato-card" style="margin-top: 0.8rem;">
+            <div class="potato-card-header">💡 支持格式</div>
+            <ul style="color: #8B4513; line-height: 1.6; font-size: 0.85rem; padding-left: 1.2rem;">
+                <li>单个IP：192.168.1.1</li>
+                <li>范围：192.168.1.1-192.168.1.10</li>
+                <li>CIDR：192.168.1.0/24</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.markdown("""
+        <div style="text-align: center; padding: 0.5rem;">
+            <span style="font-size: 2rem;">🥔 🌿</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("🥔 IP处理工具")
+    
+    # 文件上传区域
+    st.markdown('<div class="potato-card"><div class="potato-card-header">📁 上传数据文件</div></div>', unsafe_allow_html=True)
+    
+    file = st.file_uploader(
+        "点击上传或拖拽Excel/CSV文件到此处",
+        type=['xlsx', 'xls', 'csv'],
+        help="🥔 上传包含IP数据的文件",
+        key="ip_file_uploader"
+    )
+    
+    if file:
+        with st.spinner("🥔 加载中..."):
+            df = load_data_file(file)
+            if df is not None:
+                st.session_state.ip_df = df
+                st.session_state.ip_result = None
+                st.markdown("""
+                <div class="success-cute">✅ 文件加载成功</div>
+                """, unsafe_allow_html=True)
+                
+                # 显示文件信息
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown('<div class="potato-card"><div class="potato-card-header">📊 文件信息</div></div>', unsafe_allow_html=True)
+                
+                info_col1, info_col2, info_col3 = st.columns(3)
+                
+                with info_col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📝 总行数</div>
+                        <div class="metric-value">{len(df):,}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">📊 总列数</div>
+                        <div class="metric-value">{len(df.columns)}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with info_col3:
+                    file_size_mb = file.size / (1024 * 1024)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">💾 文件大小</div>
+                        <div class="metric-value">{file_size_mb:.2f} MB</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # 显示所有字段
+                st.markdown("**📋 可用字段：**")
+                fields_display = "、".join([f"`{col}`" for col in df.columns])
+                st.markdown(f"<div style='color: #8B4513;'>{fields_display}</div>", unsafe_allow_html=True)
+                
+                # 数据预览
+                with st.expander("👁️ 预览数据（前20行）"):
+                    st.dataframe(df.head(20), use_container_width=True, height=300)
+    
+    # 字段映射配置
+    if st.session_state.ip_df is not None:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 字段映射配置</div></div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-bottom: 1rem;">
+            <div style="color: #8B4513; font-size: 0.9rem;">
+                💡 <b>单位字段</b>用于分组，同一单位的IP会在一起处理。<b>IP/IP段字段</b>包含要处理的IP数据。
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 自动识别字段
+        cols = list(st.session_state.ip_df.columns)
+        
+        # 单位字段
+        default_unit = None
+        for col in cols:
+            if any(keyword in col for keyword in ["单位名称", "单位", "名称", "name", "公司"]):
+                default_unit = col
+                break
+        
+        # IP字段
+        default_ip = None
+        for col in cols:
+            if any(keyword in col.lower() for keyword in ["ip", "地址", "ip地址"]):
+                default_ip = col
+                break
+        
+        config_col1, config_col2 = st.columns(2)
+        
+        with config_col1:
+            unit_col = st.selectbox(
+                "🏷️ 单位字段（必填）",
+                options=["（请选择）"] + cols,
+                index=(cols.index(default_unit) + 1) if default_unit and default_unit in cols else 0,
+                help="选择包含单位名称的列"
+            )
+            if unit_col == "（请选择）":
+                unit_col = None
+        
+        with config_col2:
+            ip_col = st.selectbox(
+                "🖥️ IP/IP段字段（必填）",
+                options=["（请选择）"] + cols,
+                index=(cols.index(default_ip) + 1) if default_ip and default_ip in cols else 0,
+                help="选择包含IP或IP段的列"
+            )
+            if ip_col == "（请选择）":
+                ip_col = None
+        
+        # 字段预览
+        if unit_col or ip_col:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            
+            preview_col1, preview_col2 = st.columns(2)
+            
+            with preview_col1:
+                if unit_col:
+                    st.markdown(f"**🏷️ 单位字段预览**")
+                    preview_df = st.session_state.ip_df[unit_col].dropna().head(5)
+                    st.write(preview_df.tolist())
+                    unique_units = st.session_state.ip_df[unit_col].nunique()
+                    st.caption(f"📊 共 {unique_units:,} 个唯一单位")
+            
+            with preview_col2:
+                if ip_col:
+                    st.markdown(f"**🖥️ IP字段预览**")
+                    preview_df = st.session_state.ip_df[ip_col].dropna().head(5)
+                    st.write(preview_df.tolist())
+        
+        # 处理模式选择
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">⚙️ 处理模式选择</div></div>', unsafe_allow_html=True)
+        
+        mode_col1, mode_col2, mode_col3 = st.columns(3)
+        
+        with mode_col1:
+            st.markdown("""
+            <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #DEB887;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔀</div>
+                <div style="font-weight: 700; color: #8B4513;">IP段拆分</div>
+                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">拆分成单个IP</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with mode_col2:
+            st.markdown("""
+            <div style="background: #E8F5E9; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #A5D6A7;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
+                <div style="font-weight: 700; color: #8B4513;">IP聚合（连续）</div>
+                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">连续的聚合成段</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with mode_col3:
+            st.markdown("""
+            <div style="background: #FFF3E0; padding: 1rem; border-radius: 12px; text-align: center; border: 2px solid #FFCC80;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
+                <div style="font-weight: 700; color: #8B4513;">IP聚合（混合）</div>
+                <div style="font-size: 0.85rem; color: #D2691E; margin-top: 0.3rem;">连续成段+单IP保留</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        mode_options = {
+            "IP段拆分": "split",
+            "IP聚合（连续）": "aggregate_continuous",
+            "IP聚合（混合）": "aggregate_mixed"
+        }
+        
+        selected_mode = st.radio(
+            "🎯 选择处理模式",
+            options=list(mode_options.keys()),
+            horizontal=True,
+            help="选择IP处理方式"
+        )
+        process_mode = mode_options[selected_mode]
+        
+        # 模式说明
+        mode_descriptions = {
+            "split": """
+            <div style="background: #E3F2FD; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
+                <div style="color: #1565C0; font-weight: 600; margin-bottom: 0.3rem;">🔀 IP段拆分</div>
+                <ul style="color: #1565C0; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
+                    <li>将IP段拆分成每个IP一行</li>
+                    <li>范围格式 192.168.1.1-192.168.1.3 → 3行</li>
+                    <li>CIDR格式 192.168.1.0/30 → 2行（不含网络/广播地址）</li>
+                </ul>
+            </div>
+            """,
+            "aggregate_continuous": """
+            <div style="background: #E8F5E9; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
+                <div style="color: #2E7D32; font-weight: 600; margin-bottom: 0.3rem;">🔗 IP聚合（连续）</div>
+                <ul style="color: #2E7D32; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
+                    <li>将连续的IP聚合成IP段</li>
+                    <li>输入：192.168.1.1, 192.168.1.2, 192.168.1.3</li>
+                    <li>输出：192.168.1.1-192.168.1.3</li>
+                </ul>
+            </div>
+            """,
+            "aggregate_mixed": """
+            <div style="background: #FFF3E0; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
+                <div style="color: #E65100; font-weight: 600; margin-bottom: 0.3rem;">🔗 IP聚合（混合）</div>
+                <ul style="color: #E65100; font-size: 0.85rem; margin: 0; padding-left: 1.2rem; line-height: 1.6;">
+                    <li>连续的IP聚合成段，不连续的保留</li>
+                    <li>输入：192.168.1.1, 192.168.1.2, 192.168.1.5, 192.168.1.8, 192.168.1.9</li>
+                    <li>输出：192.168.1.1-192.168.1.2, 192.168.1.5, 192.168.1.8-192.168.1.9</li>
+                </ul>
+            </div>
+            """
+        }
+        
+        st.markdown(mode_descriptions[process_mode], unsafe_allow_html=True)
+        
+        # 验证必填字段
+        validation_passed = True
+        if unit_col is None:
+            st.markdown("""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                ⚠️ 请选择「单位字段」🥔
+            </div>
+            """, unsafe_allow_html=True)
+            validation_passed = False
+        
+        if ip_col is None:
+            st.markdown("""
+            <div class="warning-cute" style="margin-top: 1rem;">
+                ⚠️ 请选择「IP/IP段字段」🥔
+            </div>
+            """, unsafe_allow_html=True)
+            validation_passed = False
+        
+        # 执行处理按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        
+        with col_btn2:
+            if st.button("🚀 开始处理", type="primary", use_container_width=True):
+                if unit_col is None:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请选择「单位字段」 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                if ip_col is None:
+                    st.markdown("""
+                    <div class="error-cute">❌ 请选择「IP/IP段字段」 🥔</div>
+                    """, unsafe_allow_html=True)
+                    return
+                
+                with st.spinner("🍠 正在处理IP数据..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        start_time = time.time()
+                        
+                        status_text.text("🥔 正在解析数据...")
+                        progress_bar.progress(0.1)
+                        
+                        df = st.session_state.ip_df.copy()
+                        total_rows = len(df)
+                        
+                        # 获取其他字段（除了单位和IP字段）
+                        other_cols = [col for col in df.columns if col != unit_col and col != ip_col]
+                        
+                        # 处理结果存储
+                        results = []
+                        error_stats = {}
+                        total_ips = 0
+                        processed_units = 0
+                        
+                        # 按单位分组处理
+                        grouped = df.groupby(unit_col)
+                        
+                        for idx, (unit_name, group) in enumerate(grouped):
+                            progress = 0.1 + (idx / len(grouped)) * 0.7
+                            progress_bar.progress(progress)
+                            status_text.text(f"🥔 处理单位 {idx + 1}/{len(grouped)}...")
+                            
+                            # 获取该单位的其他字段值（取第一条）
+                            other_values = {}
+                            for col in other_cols:
+                                other_values[col] = group[col].iloc[0] if len(group) > 0 else None
+                            
+                            # 收集该单位的所有IP
+                            unit_ips = []
+                            unit_errors = []
+                            
+                            for _, row in group.iterrows():
+                                ip_str = row[ip_col]
+                                ip_list, error = parse_ip_range(ip_str)
+                                
+                                if error:
+                                    if error not in error_stats:
+                                        error_stats[error] = 0
+                                    error_stats[error] += 1
+                                else:
+                                    unit_ips.extend(ip_list)
+                            
+                            # 去重并统计
+                            unit_ips = list(set(unit_ips))
+                            total_ips += len(unit_ips)
+                            
+                            if process_mode == "split":
+                                # IP段拆分：每个IP一行
+                                for ip in sorted(unit_ips):
+                                    result_row = {unit_col: unit_name, ip_col: ip}
+                                    result_row.update(other_values)
+                                    results.append(result_row)
+                            
+                            elif process_mode == "aggregate_continuous":
+                                # IP聚合（连续）：全部聚合成段
+                                if unit_ips:
+                                    aggregated = aggregate_ips_continuous(unit_ips)
+                                    result_row = {unit_col: unit_name, ip_col: ', '.join(aggregated)}
+                                    result_row.update(other_values)
+                                    results.append(result_row)
+                            
+                            else:  # aggregate_mixed
+                                # IP聚合（混合）：连续的成段，不连续的保留
+                                if unit_ips:
+                                    aggregated = aggregate_ips_mixed(unit_ips)
+                                    result_row = {unit_col: unit_name, ip_col: aggregated}
+                                    result_row.update(other_values)
+                                    results.append(result_row)
+                            
+                            processed_units += 1
+                        
+                        progress_bar.progress(0.85)
+                        status_text.text("🍠 正在整理结果...")
+                        
+                        # 构建结果DataFrame
+                        result_df = pd.DataFrame(results)
+                        
+                        # 调整列顺序
+                        final_cols = [unit_col, ip_col] + other_cols
+                        final_cols = [col for col in final_cols if col in result_df.columns]
+                        result_df = result_df[final_cols]
+                        
+                        progress_bar.progress(0.95)
+                        status_text.text("🍠 正在生成统计...")
+                        
+                        processing_time = time.time() - start_time
+                        
+                        # 统计信息
+                        if process_mode == "split":
+                            original_rows = total_rows
+                            result_rows = len(result_df)
+                        else:
+                            original_rows = total_rows
+                            result_rows = len(result_df)
+                        
+                        st.session_state.ip_result = {
+                            'result_df': result_df,
+                            'original_rows': original_rows,
+                            'result_rows': result_rows,
+                            'processed_units': processed_units,
+                            'total_ips': total_ips,
+                            'processing_time': processing_time,
+                            'process_mode': selected_mode,
+                            'error_stats': error_stats,
+                            'unit_col': unit_col,
+                            'ip_col': ip_col
+                        }
+                        
+                        progress_bar.progress(1.0)
+                        status_text.empty()
+                        progress_bar.empty()
+                        
+                        # 显示成功消息
+                        st.markdown("""
+                        <div class="success-cute" style="margin-top: 1rem;">
+                            🎉 IP处理完成！可以下载结果文件了 🥔🎉
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.markdown(f"""
+                        <div class="error-cute">
+                            ❌ 处理失败：{str(e)} 🥔
+                        </div>
+                        """, unsafe_allow_html=True)
+    
+    # 显示处理结果
+    if st.session_state.ip_result:
+        result = st.session_state.ip_result
+        result_df = result['result_df']
+        
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📊 处理结果统计</div></div>', unsafe_allow_html=True)
+        
+        # 统计卡片
+        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+        
+        with stat_col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 原始行数</div>
+                <div class="metric-value">{result['original_rows']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📝 处理后行数</div>
+                <div class="metric-value">{result['result_rows']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">🏷️ 涉及单位</div>
+                <div class="metric-value">{result['processed_units']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with stat_col4:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">🖥️ IP总数</div>
+                <div class="metric-value">{result['total_ips']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # 显示模式说明
+        mode_labels = {
+            "IP段拆分": "每行一个IP",
+            "IP聚合（连续）": "全部聚合成段",
+            "IP聚合（混合）": "连续成段+单IP"
+        }
+        st.markdown(f"""
+        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin-top: 0.5rem;">
+            <div style="color: #8B4513; font-size: 0.9rem;">
+                <b>⚙️ 处理模式：</b>{result['process_mode']} | 
+                <b>效果：</b>{mode_labels.get(result['process_mode'], '')} | 
+                <b>耗时：</b>{result['processing_time']:.2f}秒
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 错误统计
+        error_stats = result.get('error_stats', {})
+        if error_stats:
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown('<div class="potato-card"><div class="potato-card-header">⚠️ 异常IP格式（已跳过）</div></div>', unsafe_allow_html=True)
+            
+            error_col1, error_col2 = st.columns([2, 1])
+            
+            with error_col1:
+                error_data = []
+                for error_type, count in sorted(error_stats.items(), key=lambda x: -x[1]):
+                    error_data.append({"跳过类型": error_type, "数量": count})
+                
+                if error_data:
+                    error_df = pd.DataFrame(error_data)
+                    st.dataframe(error_df, use_container_width=True, hide_index=True)
+            
+            with error_col2:
+                st.markdown("""
+                <div style="background: #FFF8DC; padding: 1rem; border-radius: 12px;">
+                    <div style="color: #8B4513; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">💡 说明</div>
+                    <ul style="color: #8B4513; font-size: 0.8rem; line-height: 1.6; padding-left: 1.2rem; margin: 0;">
+                        <li>空值行已自动跳过</li>
+                        <li>异常格式已跳过</li>
+                        <li>不影响正常数据</li>
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # 结果预览
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">👁️ 结果预览</div></div>', unsafe_allow_html=True)
+        
+        # 筛选功能
+        filter_col1, filter_col2 = st.columns([3, 1])
+        
+        with filter_col1:
+            # 获取唯一单位列表
+            unique_units = result_df[result['unit_col']].unique().tolist()
+            filter_unit = st.multiselect(
+                "🔍 按单位筛选",
+                options=unique_units,
+                default=[],
+                help="筛选特定单位的数据"
+            )
+        
+        with filter_col2:
+            preview_limit = st.selectbox(
+                "📊 预览行数",
+                options=[20, 50, 100],
+                index=0,
+                help="选择预览行数"
+            )
+        
+        # 应用筛选
+        display_df = result_df.copy()
+        if filter_unit:
+            display_df = display_df[display_df[result['unit_col']].isin(filter_unit)]
+        
+        st.markdown(f"📊 共 **{len(display_df):,}** 条记录（原始 **{len(result_df):,}** 条）")
+        
+        preview_rows = min(preview_limit, len(display_df))
+        st.dataframe(display_df.head(preview_rows), use_container_width=True, height=350)
+        
+        st.caption(f"显示前 {preview_rows} 行")
+        
+        # 下载按钮
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown('<div class="potato-card"><div class="potato-card-header">📥 下载结果</div></div>', unsafe_allow_html=True)
+        
+        # 导出格式选择
+        export_format = st.radio(
+            "📥 选择导出格式",
+            options=["Excel (.xlsx)", "CSV (.csv)"],
+            horizontal=True,
+            help="选择下载文件的格式"
+        )
+        
+        excel_bytes = excel_to_bytes(result_df, "IP处理结果.xlsx")
+        csv_bytes = csv_to_bytes(result_df, "IP处理结果.csv")
+        
+        download_col1, download_col2, download_col3 = st.columns([1, 2, 1])
+        
+        with download_col1:
+            st.markdown('<span style="font-size: 2rem;">🥔</span>', unsafe_allow_html=True)
+        
+        with download_col2:
+            if export_format == "Excel (.xlsx)":
+                st.download_button(
+                    label="📥 下载结果Excel",
+                    data=excel_bytes,
+                    file_name=f"IP处理结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
+            else:
+                st.download_button(
+                    label="📥 下载结果CSV",
+                    data=csv_bytes,
+                    file_name=f"IP处理结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    type="primary",
+                    use_container_width=True
+                )
+        
+        with download_col3:
+            st.markdown('<span style="font-size: 2rem;">🍠</span>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align: center; color: #8B4513; margin-top: 0.5rem;">
+            📊 结果：<strong>{len(result_df):,}</strong> 行 × <strong>{len(result_df.columns)}</strong> 列
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 底部
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="footer">
+        <p>Made with 🥔 by 洋芋头</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================
 # 主应用入口
 # ============================================
 def main():
@@ -3455,7 +4275,7 @@ def main():
         st.divider()
         
         # 工具选项列表
-        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器"]
+        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器", "🖥️ IP处理工具"]
         
         # 初始化或读取当前页面
         if 'page' not in st.session_state:
@@ -3483,7 +4303,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.3 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.4 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -3500,6 +4320,8 @@ def main():
         show_domain_tool()
     elif page == "🌳 单位树构建器":
         show_unit_tree_tool()
+    elif page == "🖥️ IP处理工具":
+        show_ip_tool()
 
 
 if __name__ == "__main__":

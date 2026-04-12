@@ -580,7 +580,7 @@ def show_home():
     # 工具列表
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
-        <div class="potato-card-header">🛠️ 可用工具（点击进入使用）</div>
+        <div class="potato-card-header">🛠️ 老农民的工具（点击进入使用）</div>
     </div>
     """, unsafe_allow_html=True)
     

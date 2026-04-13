@@ -341,12 +341,14 @@ def compare_columns(df: pd.DataFrame, col1: str, col2: str) -> list:
         col2: 第二列名称
     
     Returns:
-        差异行索引列表
+        差异行索引列表（重置后的行号，从0开始）
     """
     diff_indices = []
-    for idx, row in df.iterrows():
-        val1 = str(row[col1]).strip() if pd.notna(row[col1]) else ''
-        val2 = str(row[col2]).strip() if pd.notna(row[col2]) else ''
+    df_reset = df.reset_index(drop=True)  # 重置索引确保连续
+    
+    for idx in range(len(df_reset)):
+        val1 = str(df_reset.loc[idx, col1]).strip() if pd.notna(df_reset.loc[idx, col1]) else ''
+        val2 = str(df_reset.loc[idx, col2]).strip() if pd.notna(df_reset.loc[idx, col2]) else ''
         if val1 != val2:
             diff_indices.append(idx)
     return diff_indices
@@ -580,7 +582,7 @@ def show_home():
     # 工具列表
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
-        <div class="potato-card-header">🛠️ 老农民的工具（点击进入使用）</div>
+        <div class="potato-card-header">🛠️ 可用工具（点击进入使用）</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -721,39 +723,68 @@ def show_home():
     <div class="potato-card" style="margin: 1.5rem 0;">
         <div class="potato-card-header">📝 版本更新</div>
         
-           v6.0当前版本
-            1、新增数据差异行工具
-            2、支持逐行比对两列数据
-            3、差异行用浅红色高亮显示
-            4、导出带高亮的Excel文件
+        <div style="margin-top: 1rem; color: #8B4513;">
+            <p style="margin: 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🔍 v2.5</span>
+                当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增数据差异行工具</li>
+                <li>支持逐行比对两列数据</li>
+                <li>差异行用浅红色高亮显示</li>
+                <li>导出带高亮的Excel文件</li>
+            </ul>
             
-            v5.0工具箱升升升级版
-             1、新增IP处理工具功能
-             2、支持IP段拆分（CIDR和范围格式）
-             3、支持IP聚合（连续和混合模式）
-             4、同一单位数据隔离处理
-             
-            v4.0工具箱升升级版
-             1、新增单位树构建器功能
-             2、支持10种分组自动判定
-             3、智能上级节点判定
-             4、支持按分组和区域筛选预览
-
-            v3.0工具箱升级版
-             1、新增域名提取器功能
-             2、支持政务类域名和普通域名
-             3、支持提取主域名和子域名
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🖥️ v2.4</span>
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增IP处理工具功能</li>
+                <li>支持IP段拆分（CIDR和范围格式）</li>
+                <li>支持IP聚合（连续和混合模式）</li>
+                <li>同一单位数据隔离处理</li>
+            </ul>
             
-            v2.0工具箱版
-             1、重构为多工具集架构
-             2、新增数据拆分器功能
-             3、土豆主题UI优化
-
-            v1.0初始版本
-             1、数据比对回填功能
-             3、可爱土豆风格界面
-
-        扣1助力洋芋头挖土豆！
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #32CD32, #228B22); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🌳 v2.3</span>
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增单位树构建器功能</li>
+                <li>支持10种分组自动判定</li>
+                <li>智能上级节点判定</li>
+                <li>支持按分组和区域筛选预览</li>
+            </ul>
+            
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FFA500, #FF8C00); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v2.2</span>
+                域名提取器版
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增域名提取器功能</li>
+                <li>支持政务类域名和普通域名</li>
+                <li>支持提取主域名和子域名</li>
+            </ul>
+            
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #D2691E; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🍠 v2.0</span>
+                工具箱版
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>重构为多工具集架构</li>
+                <li>新增数据拆分器功能</li>
+                <li>土豆主题UI优化</li>
+            </ul>
+            
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: #8B4513; color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🥔 v1.0</span>
+                初始版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>数据比对回填功能</li>
+                <li>可爱土豆风格界面</li>
+            </ul>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 底部装饰
@@ -4585,7 +4616,8 @@ def show_diff_tool():
                         status_text.text("🥔 正在比对数据...")
                         progress_bar.progress(0.3)
                         
-                        df = st.session_state.diff_df.copy()
+                        # 重置索引确保连续
+                        df = st.session_state.diff_df.reset_index(drop=True).copy()
                         
                         # 执行比对
                         diff_indices = compare_columns(df, col1, col2)
@@ -4736,28 +4768,29 @@ def show_diff_tool():
         
         # 筛选数据
         if view_mode == "仅显示差异行":
-            display_df = df.iloc[diff_indices].copy()
+            display_df = df.iloc[diff_indices].copy().reset_index(drop=True)
+            display_diff_indices = list(range(len(display_df)))  # 所有行都是差异行
         else:
             display_df = df.copy()
+            display_diff_indices = diff_indices
         
         st.markdown(f"📊 共 **{len(display_df):,}** 条记录（原始 **{len(df):,}** 条）")
         
         # 使用pandas Styler进行高亮显示
         def highlight_diff_rows(row):
             """高亮差异行"""
-            # 获取行的原始索引
+            # 获取行的索引
             row_idx = row.name
-            if row_idx in diff_indices:
+            if row_idx in display_diff_indices:
                 return ['background-color: #FFCCCC'] * len(row)
             else:
                 return [''] * len(row)
         
-        # 应用高亮样式
-        styled_df = display_df.style.apply(highlight_diff_rows, axis=1)
-        
         # 显示高亮表格
         preview_rows = min(50, len(display_df))
-        st.dataframe(styled_df.head(preview_rows), use_container_width=True, height=350)
+        preview_df = display_df.head(preview_rows)
+        styled_df = preview_df.style.apply(highlight_diff_rows, axis=1)
+        st.dataframe(styled_df, use_container_width=True, height=350)
         
         st.caption(f"💡 差异行已用浅红色背景高亮显示 | 显示前 {preview_rows} 行")
         
@@ -4848,7 +4881,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v6.0 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.5 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     

@@ -4848,7 +4848,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.5 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v6.0 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     

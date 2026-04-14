@@ -68,13 +68,23 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* ===== 土豆静态装饰 ===== */
+    /* ===== 土豆浮动装饰 ===== */
+    @keyframes potato-float {
+        0%, 100% {
+            transform: translateY(0px);
+        }
+        50% {
+            transform: translateY(-8px);
+        }
+    }
+    
     .potato-decoration {
         text-align: center;
         margin: 0.8rem 0;
         color: #8B4513;
         font-size: 1.5rem;
         letter-spacing: 0.5rem;
+        animation: potato-float 3s ease-in-out infinite;
     }
     
     /* ===== 卡片样式 ===== */
@@ -344,7 +354,15 @@ def compare_columns(df: pd.DataFrame, col1: str, col2: str) -> list:
         差异行索引列表（重置后的行号，从0开始）
     """
     diff_indices = []
-    df_reset = df.reset_index(drop=True)  # 重置索引确保连续
+    
+    # 验证列名是否存在
+    if col1 not in df.columns:
+        raise KeyError(f"列 '{col1}' 不存在于数据中")
+    if col2 not in df.columns:
+        raise KeyError(f"列 '{col2}' 不存在于数据中")
+    
+    # 重置索引确保连续
+    df_reset = df.reset_index(drop=True).copy()
     
     for idx in range(len(df_reset)):
         val1 = str(df_reset.loc[idx, col1]).strip() if pd.notna(df_reset.loc[idx, col1]) else ''
@@ -4618,6 +4636,23 @@ def show_diff_tool():
                         
                         # 重置索引确保连续
                         df = st.session_state.diff_df.reset_index(drop=True).copy()
+                        
+                        # 验证列名是否存在
+                        if col1 not in df.columns:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.markdown(f"""
+                            <div class="error-cute">❌ 列 '{col1}' 不存在，请重新选择 🥔</div>
+                            """, unsafe_allow_html=True)
+                            return
+                        
+                        if col2 not in df.columns:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.markdown(f"""
+                            <div class="error-cute">❌ 列 '{col2}' 不存在，请重新选择 🥔</div>
+                            """, unsafe_allow_html=True)
+                            return
                         
                         # 执行比对
                         diff_indices = compare_columns(df, col1, col2)

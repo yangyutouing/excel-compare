@@ -3286,7 +3286,7 @@ def show_unit_tree_tool():
         
         # 字段预览
         if unit_name_col:
-            st.markdown("<hr>", unsafe_allow=True)
+            st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown(f"**🥔 单位名称字段预览**")
             
             preview_df = st.session_state.tree_df[unit_name_col].dropna().head(10)
@@ -3320,7 +3320,16 @@ def show_unit_tree_tool():
                         status_text.text("🥔 正在处理数据...")
                         progress_bar.progress(0.1)
                         
-                        df = st.session_state.tree_df.copy()
+                        df = st.session_state.tree_df.reset_index(drop=True).copy()
+                        
+                        # 验证列名是否存在
+                        if unit_name_col not in df.columns:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.markdown(f"""
+                            <div class="error-cute">❌ 列 '{unit_name_col}' 不存在，请重新选择 🥔</div>
+                            """, unsafe_allow_html=True)
+                            return
                         
                         # 过滤掉单位名称为空的行
                         original_count = len(df)
@@ -3328,6 +3337,7 @@ def show_unit_tree_tool():
                         
                         # 去重：同一单位名称只保留一条
                         df = df.drop_duplicates(subset=[unit_name_col], keep='first')
+                        df = df.reset_index(drop=True)  # 重置索引
                         after_dedup = len(df)
                         
                         status_text.text("🥔 正在分析数据结构...")
@@ -3337,7 +3347,7 @@ def show_unit_tree_tool():
                         all_units = set(df[unit_name_col].astype(str).str.strip())
                         
                         # 获取单位性质（用于分组判定）
-                        if unit_type_col:
+                        if unit_type_col and unit_type_col in df.columns:
                             df['单位性质_处理'] = df[unit_type_col].fillna('')
                         else:
                             df['单位性质_处理'] = ''
@@ -3347,9 +3357,9 @@ def show_unit_tree_tool():
                         
                         # 分组判定
                         groups = []
-                        for idx, row in df.iterrows():
-                            unit_name = row[unit_name_col]
-                            unit_type = row.get('单位性质_处理', '')
+                        for idx in range(len(df)):
+                            unit_name = df.loc[idx, unit_name_col]
+                            unit_type = df.loc[idx, '单位性质_处理']
                             group = classify_group(unit_name, unit_type)
                             groups.append(group)
                         
@@ -3360,10 +3370,10 @@ def show_unit_tree_tool():
                         
                         # 上级节点判定
                         parent_nodes = []
-                        for idx, row in df.iterrows():
-                            unit_name = row[unit_name_col]
-                            admin_unit = row[admin_unit_col] if admin_unit_col else None
-                            group = row['分组']
+                        for idx in range(len(df)):
+                            unit_name = df.loc[idx, unit_name_col]
+                            admin_unit = df.loc[idx, admin_unit_col] if admin_unit_col and admin_unit_col in df.columns else None
+                            group = df.loc[idx, '分组']
                             
                             parent = get_parent_node(unit_name, admin_unit, all_units, group)
                             parent_nodes.append(parent)
@@ -3375,14 +3385,12 @@ def show_unit_tree_tool():
                         
                         # 简化层级计算
                         levels = []
-                        level_cache = {}
-                        for idx, row in df.iterrows():
-                            parent = row['上级节点']
-                            unit_name = row[unit_name_col]
+                        for idx in range(len(df)):
+                            parent = df.loc[idx, '上级节点']
+                            unit_name = df.loc[idx, unit_name_col]
                             
                             if parent in GROUP_LIST:
                                 levels.append(1)
-                                level_cache[unit_name] = 1
                             elif parent in all_units and parent != unit_name:
                                 levels.append(2)  # 简化处理
                             else:
@@ -3394,7 +3402,7 @@ def show_unit_tree_tool():
                         status_text.text("🍠 正在整理结果...")
                         
                         # 添加区域字段
-                        if area_col:
+                        if area_col and area_col in df.columns:
                             df['区域'] = df[area_col].fillna('未知')
                         else:
                             df['区域'] = '未知'
@@ -3404,9 +3412,9 @@ def show_unit_tree_tool():
                         
                         # 构建最终结果
                         result_columns = [unit_name_col, '上级节点', '层级', '分组', '区域']
-                        if admin_unit_col:
+                        if admin_unit_col and admin_unit_col in df.columns:
                             result_columns.insert(1, admin_unit_col)
-                        if unit_type_col:
+                        if unit_type_col and unit_type_col in df.columns:
                             result_columns.append(unit_type_col)
                         
                         # 确保所有列都存在

@@ -5,6 +5,13 @@
 包含：数据比对回填、数据拆分器、数据聚合器等功能
 """
 
+# 依赖库检查
+try:
+    import dns.resolver
+    DNS_AVAILABLE = True
+except ImportError:
+    DNS_AVAILABLE = False
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -704,7 +711,7 @@ def show_home():
             st.session_state.page = "🖥️ IP处理工具"
             st.rerun()
     
-    # 工具4：数据差异行 + 更多工具
+    # 工具4：数据差异行 + 域名解析工具
     st.markdown("---")
     col7, col8 = st.columns(2, gap="large")
     
@@ -725,16 +732,18 @@ def show_home():
     
     with col8:
         st.markdown("""
-        <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
-            <div class="tool-icon">🚧</div>
-            <div class="tool-title">更多工具...</div>
-            <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
+        <div class="tool-card" style="padding-bottom: 0.5rem;">
+            <div class="tool-icon">🔮</div>
+            <div class="tool-title">域名解析工具</div>
+            <div class="tool-desc">查询域名的DNS解析记录（CNAME/A记录）</div>
             <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
-                🥔 土豆正在努力种植新的工具...
+                📁 上传文件 → 选择域名列 → 自动解析DNS
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
+        if st.button("🚀 进入工具", key="go_dns_tool", use_container_width=True):
+            st.session_state.page = "🔮 域名解析工具"
+            st.rerun()
     
     # 版本更新
     st.markdown("""
@@ -743,8 +752,18 @@ def show_home():
         
         <div style="margin-top: 1rem; color: #8B4513;">
             <p style="margin: 0.5rem 0; font-weight: 600;">
-                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🔍 v2.5</span>
+                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🔮 v2.6</span>
                 当前版本
+            </p>
+            <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
+                <li>新增域名解析工具</li>
+                <li>查询域名的DNS解析记录（CNAME/A记录）</li>
+                <li>支持批量解析和进度显示</li>
+                <li>统计解析成功率和结果预览</li>
+            </ul>
+            
+            <p style="margin: 1rem 0 0.5rem 0; font-weight: 600;">
+                <span style="background: linear-gradient(135deg, #FF6B6B, #FF4757); color: white; padding: 0.15rem 0.6rem; border-radius: 15px; font-size: 0.8rem; margin-right: 0.5rem;">🔍 v2.5</span>
             </p>
             <ul style="margin: 0.3rem 0; padding-left: 2rem; line-height: 1.8; font-size: 0.9rem;">
                 <li>新增数据差异行工具</li>
@@ -4392,7 +4411,385 @@ def show_ip_tool():
 
 
 # ============================================
-# 页面8：数据差异行工具
+# 页面8：域名解析工具
+# ============================================
+def show_dns_tool():
+    """显示域名解析工具"""
+    # 依赖检查
+    try:
+        import dns.resolver
+    except ImportError:
+        st.error("❌ 需要安装 dnspython 库才能使用此功能")
+        st.markdown("""
+        <div class="potato-card" style="margin: 1rem 0; background: #FFF0F0;">
+            <p style="color: #8B0000; font-weight: 600;">请在命令行中执行以下命令安装依赖：</p>
+            <code style="background: #FFF8DC; padding: 0.5rem 1rem; border-radius: 8px; display: block; color: #8B4513;">
+                pip install dnspython
+            </code>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+    
+    import dns.resolver
+    
+    st.markdown("""
+    <div class="potato-header">
+        <h1 class="potato-title">🌐 域名解析工具</h1>
+        <p class="potato-subtitle">✨ 查询域名的DNS解析记录 ✨</p>
+    </div>
+    
+    <div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>
+    """, unsafe_allow_html=True)
+    
+    # 使用说明卡片
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 250px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📖 工具用途</div>
+                <div style="color: #D2691E; font-size: 0.9rem;">查询域名的DNS解析记录（CNAME/A记录），自动识别解析类型和解析值。</div>
+            </div>
+            <div style="flex: 2; min-width: 300px;">
+                <div style="color: #8B4513; font-weight: 600; margin-bottom: 0.5rem;">📋 使用步骤</div>
+                <div style="color: #8B4513; font-size: 0.9rem;">
+                    ① 上传Excel/CSV文件 → ② 选择域名列 → ③ 开始解析 → ④ 下载结果
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # DNS查询函数
+    def query_dns(domain):
+        """查询域名DNS解析"""
+        try:
+            domain = domain.strip()
+            
+            # 跳过空域名
+            if not domain:
+                return ('NULL', '')
+            
+            # 先查CNAME
+            try:
+                result = dns.resolver.resolve(domain, 'CNAME')
+                values = [rdata.to_text() for rdata in result]
+                return ('CNAME', ','.join(values))
+            except dns.resolver.NXDOMAIN:
+                return ('NULL', '域名不存在')
+            except dns.resolver.NoAnswer:
+                pass
+            except dns.exception.Timeout:
+                return ('NULL', '查询超时')
+            except Exception:
+                pass
+            
+            # 再查A记录
+            try:
+                result = dns.resolver.resolve(domain, 'A')
+                values = [rdata.to_text() for rdata in result]
+                return ('A', ','.join(values))
+            except dns.resolver.NXDOMAIN:
+                return ('NULL', '域名不存在')
+            except dns.resolver.NoAnswer:
+                return ('NULL', '无A记录')
+            except dns.exception.Timeout:
+                return ('NULL', '查询超时')
+            except Exception:
+                pass
+            
+            return ('NULL', '')
+            
+        except Exception as e:
+            return ('NULL', '解析异常')
+    
+    # 初始化session state
+    if 'dns_df' not in st.session_state:
+        st.session_state.dns_df = None
+    if 'dns_result' not in st.session_state:
+        st.session_state.dns_result = None
+    
+    # 配置区域
+    st.markdown("""
+    <div class="potato-card" style="margin: 1rem 0;">
+        <div class="potato-card-header">📁 配置区域</div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([2, 1], gap="large")
+    
+    with col1:
+        # 上传文件
+        uploaded_file = st.file_uploader(
+            "📂 上传Excel或CSV文件",
+            type=['xlsx', 'xls', 'csv'],
+            help="支持 .xlsx, .xls, .csv 格式"
+        )
+    
+    with col2:
+        st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)  # 占位
+        if st.button("🔄 清空数据", use_container_width=True):
+            if 'dns_df' in st.session_state:
+                del st.session_state.dns_df
+            if 'dns_result' in st.session_state:
+                del st.session_state.dns_result
+            st.rerun()
+    
+    # 选择域名列
+    if uploaded_file is not None:
+        try:
+            # 读取文件
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+            
+            st.session_state.dns_df = df
+            
+            # 显示文件信息
+            st.markdown(f"""
+            <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 10px; margin: 0.8rem 0;">
+                <span style="color: #8B4513; font-weight: 600;">📊 文件信息：</span>
+                <span style="color: #D2691E;">{uploaded_file.name}</span>
+                <span style="color: #8B4513;"> | 共 </span>
+                <span style="color: #FF8C00; font-weight: 700;">{len(df):,}</span>
+                <span style="color: #8B4513;"> 行 × </span>
+                <span style="color: #FF8C00; font-weight: 700;">{len(df.columns)}</span>
+                <span style="color: #8B4513;"> 列</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 选择域名列
+            columns = ['-- 请选择列 --'] + list(df.columns)
+            selected_column = st.selectbox(
+                "🔍 选择域名列",
+                options=range(len(columns)),
+                format_func=lambda x: columns[x],
+                help="选择包含域名的列"
+            )
+            
+            if selected_column > 0:
+                domain_column = columns[selected_column]
+                st.session_state.dns_domain_column = domain_column
+                
+                # 域名预览
+                non_empty_domains = df[domain_column].dropna().astype(str).str.strip()
+                non_empty_domains = non_empty_domains[non_empty_domains != '']
+                
+                st.markdown(f"""
+                <div style="background: #FFFAF0; padding: 0.8rem; border-radius: 10px; margin: 0.8rem 0;">
+                    <span style="color: #8B4513; font-weight: 600;">📋 域名预览：</span>
+                    <span style="color: #8B4513;">共检测到 </span>
+                    <span style="color: #32CD32; font-weight: 700;">{len(non_empty_domains):,}</span>
+                    <span style="color: #8B4513;"> 个非空域名</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 显示前5个域名示例
+                st.markdown("<details><summary style='color:#8B4513;cursor:pointer;font-weight:600;'>👁️ 查看前5个域名示例</summary>", unsafe_allow_html=True)
+                sample_domains = non_empty_domains.head(5).tolist()
+                for i, d in enumerate(sample_domains, 1):
+                    st.markdown(f"<div style='color:#D2691E;padding:0.2rem 0;'>• {d}</div>", unsafe_allow_html=True)
+                st.markdown("</details>", unsafe_allow_html=True)
+                
+                # 开始解析按钮
+                if st.button("🚀 开始DNS解析", type="primary", use_container_width=True):
+                    with st.spinner("正在进行DNS解析，请稍候..."):
+                        # 初始化进度
+                        progress_bar = st.progress(0)
+                        progress_text = st.empty()
+                        
+                        # 存储结果
+                        results = []
+                        total = len(df)
+                        success_count = 0
+                        fail_count = 0
+                        
+                        # 遍历每一行
+                        for idx, row in df.iterrows():
+                            domain = row[domain_column]
+                            
+                            # 更新进度
+                            progress = (idx + 1) / total
+                            progress_bar.progress(progress)
+                            progress_text.markdown(
+                                f"<span style='color:#8B4513;'>正在解析：</span>"
+                                f"<span style='color:#FF8C00;font-weight:600;'>{str(domain)[:50]}</span>"
+                                f"<span style='color:#8B4513;'> ({idx + 1}/{total})</span>",
+                                unsafe_allow_html=True
+                            )
+                            
+                            # 查询DNS
+                            if pd.isna(domain) or str(domain).strip() == '':
+                                results.append(('NULL', ''))
+                            else:
+                                record_type, record_value = query_dns(str(domain))
+                                results.append((record_type, record_value))
+                                if record_type != 'NULL':
+                                    success_count += 1
+                                else:
+                                    fail_count += 1
+                        
+                        # 添加结果列
+                        result_df = df.copy()
+                        result_df['解析类型'] = [r[0] for r in results]
+                        result_df['解析值'] = [r[1] for r in results]
+                        
+                        st.session_state.dns_result = result_df
+                        st.session_state.dns_stats = {
+                            'total': total,
+                            'success': success_count,
+                            'fail': fail_count
+                        }
+                        
+                        st.rerun()
+        
+        except Exception as e:
+            st.error(f"❌ 读取文件失败：{str(e)}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)  # 关闭配置区域卡片
+    
+    # 显示结果
+    if st.session_state.dns_result is not None:
+        result_df = st.session_state.dns_result
+        stats = st.session_state.dns_stats
+        
+        st.markdown("---")
+        
+        # 统计信息
+        st.markdown("""
+        <div class="potato-card" style="margin: 1rem 0;">
+            <div class="potato-card-header">📊 解析结果统计</div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4, gap="medium")
+        
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">总域名数</div>
+                <div class="metric-value">{stats['total']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">解析成功</div>
+                <div class="metric-value" style="color: #32CD32;">{stats['success']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">解析失败</div>
+                <div class="metric-value" style="color: #FF6B6B;">{stats['fail']:,}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col4:
+            success_rate = (stats['success'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">成功率</div>
+                <div class="metric-value" style="color: #FFA500;">{success_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)  # 关闭统计卡片
+        
+        # 结果预览
+        st.markdown("""
+        <div class="potato-card" style="margin: 1rem 0;">
+            <div class="potato-card-header">👁️ 结果预览（前50条）</div>
+        """, unsafe_allow_html=True)
+        
+        # 预览数据
+        preview_df = result_df.head(50)
+        
+        # 根据结果添加颜色
+        def highlight_result(row):
+            if row['解析类型'] == 'CNAME':
+                return ['background-color: #E6F3FF'] * len(row)
+            elif row['解析类型'] == 'A':
+                return ['background-color: #E6FFE6'] * len(row)
+            else:
+                return ['background-color: #FFF0F0'] * len(row)
+        
+        st.dataframe(
+            preview_df.style.apply(highlight_result, axis=1),
+            use_container_width=True,
+            height=500
+        )
+        
+        # 图例说明
+        st.markdown("""
+        <div style="display: flex; gap: 1rem; margin-top: 0.8rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <div style="width: 20px; height: 20px; background: #E6F3FF; border-radius: 4px;"></div>
+                <span style="color: #8B4513; font-size: 0.85rem;">CNAME记录</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <div style="width: 20px; height: 20px; background: #E6FFE6; border-radius: 4px;"></div>
+                <span style="color: #8B4513; font-size: 0.85rem;">A记录</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <div style="width: 20px; height: 20px; background: #FFF0F0; border-radius: 4px;"></div>
+                <span style="color: #8B4513; font-size: 0.85rem;">解析失败</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)  # 关闭预览卡片
+        
+        # 下载按钮
+        st.markdown("""
+        <div class="potato-card" style="margin: 1rem 0;">
+            <div class="potato-card-header">💾 导出结果</div>
+        """, unsafe_allow_html=True)
+        
+        # 生成Excel文件
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            result_df.to_excel(writer, sheet_name='DNS解析结果', index=False)
+        
+        output.seek(0)
+        
+        col1, col2 = st.columns(2, gap="large")
+        
+        with col1:
+            st.download_button(
+                label="📥 下载Excel文件",
+                data=output,
+                file_name=f"DNS解析结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
+        with col2:
+            # CSV下载
+            csv_data = result_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 下载CSV文件",
+                data=csv_data,
+                file_name=f"DNS解析结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        st.markdown("</div>", unsafe_allow_html=True)  # 关闭下载卡片
+    
+    # 底部
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="potato-decoration">🥔 🍠 🥔 🍠 🥔</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="footer">
+        <p>Made with 🥔 by 洋芋头</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ============================================
+# 页面9：数据差异行工具
 # ============================================
 def show_diff_tool():
     """显示数据差异行工具"""
@@ -4896,7 +5293,7 @@ def main():
         st.divider()
         
         # 工具选项列表
-        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🌳 单位树构建器", "🖥️ IP处理工具", "🔍 数据差异行"]
+        options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🔮 域名解析工具", "🌳 单位树构建器", "🖥️ IP处理工具", "🔍 数据差异行"]
         
         # 初始化或读取当前页面
         if 'page' not in st.session_state:
@@ -4924,7 +5321,7 @@ def main():
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.5 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.6 工具箱版</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -4939,6 +5336,8 @@ def main():
         show_aggregate_tool()
     elif page == "🌐 域名提取器":
         show_domain_tool()
+    elif page == "🔮 域名解析工具":
+        show_dns_tool()
     elif page == "🌳 单位树构建器":
         show_unit_tree_tool()
     elif page == "🖥️ IP处理工具":

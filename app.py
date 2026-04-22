@@ -745,6 +745,23 @@ def show_home():
             st.session_state.page = "🔮 域名解析工具"
             st.rerun()
     
+    # 更多工具
+    st.markdown("---")
+    col9, col10 = st.columns(2, gap="large")
+    
+    with col9:
+        st.markdown("""
+        <div class="tool-card" style="padding-bottom: 0.5rem; opacity: 0.7;">
+            <div class="tool-icon">🚧</div>
+            <div class="tool-title">更多工具...</div>
+            <div class="tool-desc">更多实用工具正在开发中，敬请期待！</div>
+            <p style="margin-top: 0.5rem; color: #8B4513; font-size: 0.85rem;">
+                🥔 土豆正在努力种植新的工具...
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.button("🚀 敬请期待", key="go_more", use_container_width=True, disabled=True)
+    
     # 版本更新
     st.markdown("""
     <div class="potato-card" style="margin: 1.5rem 0;">
@@ -4415,22 +4432,7 @@ def show_ip_tool():
 # ============================================
 def show_dns_tool():
     """显示域名解析工具"""
-    # 依赖检查
-    try:
-        import dns.resolver
-    except ImportError:
-        st.error("❌ 需要安装 dnspython 库才能使用此功能")
-        st.markdown("""
-        <div class="potato-card" style="margin: 1rem 0; background: #FFF0F0;">
-            <p style="color: #8B0000; font-weight: 600;">请在命令行中执行以下命令安装依赖：</p>
-            <code style="background: #FFF8DC; padding: 0.5rem 1rem; border-radius: 8px; display: block; color: #8B4513;">
-                pip install dnspython
-            </code>
-        </div>
-        """, unsafe_allow_html=True)
-        return
-    
-    import dns.resolver
+    # 使用内置方法，无需安装额外库
     
     st.markdown("""
     <div class="potato-header">
@@ -4459,9 +4461,13 @@ def show_dns_tool():
     </div>
     """, unsafe_allow_html=True)
     
-    # DNS查询函数
+    # DNS查询函数（使用内置库，无需安装额外依赖）
     def query_dns(domain):
-        """查询域名DNS解析"""
+        """查询域名DNS解析（使用系统命令，无需安装额外库）"""
+        import socket
+        import subprocess
+        import platform
+        
         try:
             domain = domain.strip()
             
@@ -4469,38 +4475,47 @@ def show_dns_tool():
             if not domain:
                 return ('NULL', '')
             
-            # 先查CNAME
+            # 方法1：使用socket查询A记录
             try:
-                result = dns.resolver.resolve(domain, 'CNAME')
-                values = [rdata.to_text() for rdata in result]
-                return ('CNAME', ','.join(values))
-            except dns.resolver.NXDOMAIN:
+                ip = socket.gethostbyname(domain)
+                # 检查是否有CNAME
+                try:
+                    # 使用nslookup查询CNAME
+                    if platform.system() == 'Windows':
+                        result = subprocess.run(['nslookup', '-type=CNAME', domain], 
+                                              capture_output=True, text=True, timeout=10)
+                        output = result.stdout
+                    else:
+                        result = subprocess.run(['dig', '+short', 'CNAME', domain], 
+                                              capture_output=True, text=True, timeout=10)
+                        output = result.stdout
+                    
+                    # 解析CNAME
+                    if 'canonical name' in output.lower() or (output.strip() and 'dig' in str(result.args)):
+                        if platform.system() == 'Windows':
+                            # Windows nslookup格式
+                            for line in output.split('\n'):
+                                if 'canonical name' in line.lower():
+                                    cname = line.split('=')[-1].strip()
+                                    return ('CNAME', cname)
+                        else:
+                            # Linux dig格式
+                            cname = output.strip().split('\n')[0]
+                            if cname:
+                                return ('CNAME', cname)
+                except:
+                    pass
+                
+                return ('A', ip)
+            except socket.gaierror:
                 return ('NULL', '域名不存在')
-            except dns.resolver.NoAnswer:
-                pass
-            except dns.exception.Timeout:
+            except socket.timeout:
                 return ('NULL', '查询超时')
-            except Exception:
-                pass
-            
-            # 再查A记录
-            try:
-                result = dns.resolver.resolve(domain, 'A')
-                values = [rdata.to_text() for rdata in result]
-                return ('A', ','.join(values))
-            except dns.resolver.NXDOMAIN:
-                return ('NULL', '域名不存在')
-            except dns.resolver.NoAnswer:
-                return ('NULL', '无A记录')
-            except dns.exception.Timeout:
-                return ('NULL', '查询超时')
-            except Exception:
-                pass
-            
-            return ('NULL', '')
-            
+            except Exception as e:
+                return ('NULL', str(e)[:20])
+                
         except Exception as e:
-            return ('NULL', '解析异常')
+            return ('NULL', str(e)[:20])
     
     # 初始化session state
     if 'dns_df' not in st.session_state:

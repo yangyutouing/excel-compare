@@ -5381,10 +5381,87 @@ def show_diff_tool():
 
 
 # ============================================
+# 登录功能
+# ============================================
+def check_password():
+    """返回用户是否登录成功"""
+
+    # 初始化session_state
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+
+    # 如果已登录，直接返回True
+    if st.session_state.logged_in:
+        return True
+
+    # 登录页面
+    st.markdown("""
+    <div style="text-align: center; padding: 2rem 0;">
+        <div class="potato-decoration" style="font-size: 5rem; margin-bottom: 1rem;">
+            🥔
+        </div>
+        <h1 style="color: #8B4513; margin-bottom: 0.5rem;">土豆数据工具箱</h1>
+        <p style="color: #D2691E; font-size: 1.1rem;">请登录后使用</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 登录表单
+    st.markdown('<div class="potato-card" style="max-width: 400px; margin: 2rem auto;">', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+    with col2:
+        st.markdown('<div style="text-align: center; margin-bottom: 1.5rem;">', unsafe_allow_html=True)
+        st.markdown('<span style="font-size: 2.5rem;">🔐</span>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: #8B4513; margin-top: 0.5rem;">用户登录</h3>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # 输入框
+        username = st.text_input("👤 用户名", placeholder="请输入用户名", key="login_username")
+        password = st.text_input("🔒 密码", type="password", placeholder="请输入密码", key="login_password")
+
+        st.markdown('<div style="margin: 1rem 0;"></div>', unsafe_allow_html=True)
+
+        # 登录按钮
+        if st.button("🥔 登录", type="primary", use_container_width=True):
+            # 简单验证（可以修改为你想要的账号密码）
+            if (username == "admin" and password == "123456") or (username == "potato" and password == "654321"):
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.success(f"🎉 欢迎回来，{username}！")
+                st.rerun()
+            else:
+                st.error("❌ 用户名或密码错误！")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 默认账号提示
+    st.markdown("""
+    <div style="text-align: center; color: #8B4513; margin-top: 2rem;">
+        <p style="font-size: 0.9rem;">
+            💡 默认账号：<strong>admin / 123456</strong> 或 <strong>potato / 654321</strong>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    return False
+
+
+def logout():
+    """退出登录"""
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.rerun()
+
+
+# ============================================
 # 主应用入口
 # ============================================
 def main():
     """主应用入口"""
+    # 先检查登录
+    if not check_password():
+        return
+
     # 侧边栏导航
     with st.sidebar:
         st.markdown("""
@@ -5393,22 +5470,32 @@ def main():
             <h1 style="color: #8B4513; margin: 0.3rem 0; font-size: 1.3rem;">土豆数据工具箱</h1>
         </div>
         """, unsafe_allow_html=True)
-        
+
+        # 显示当前用户
+        st.markdown(f"""
+        <div style="background: #FFF8DC; padding: 0.8rem; border-radius: 12px; margin-bottom: 1rem;">
+            <div style="text-align: center; color: #8B4513;">
+                <span style="font-size: 1.5rem;">👤</span>
+                <p style="margin: 0.3rem 0; font-weight: 600;">{st.session_state.username}</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         st.divider()
-        
+
         # 工具选项列表
         options = ["🏠 首页", "🔄 数据比对回填", "✂️ 数据拆分器", "🔗 数据聚合器", "🌐 域名提取器", "🔮 域名解析工具", "🌳 单位树构建器", "🖥️ IP处理工具", "🔍 数据差异行"]
-        
+
         # 初始化或读取当前页面
         if 'page' not in st.session_state:
             st.session_state.page = options[0]
-        
+
         # 根据 session_state 设置默认选中
         try:
             default_index = options.index(st.session_state.page)
         except ValueError:
             default_index = 0
-        
+
         # 注意：不使用 key 参数，让 index 参数根据 session_state.page 生效
         page = st.radio(
             "🧭 选择工具",
@@ -5416,16 +5503,20 @@ def main():
             index=default_index,
             label_visibility="collapsed"
         )
-        
+
         # 更新 session_state
         st.session_state.page = page
-        
+
         st.divider()
-        
+
+        # 退出登录按钮
+        if st.button("🚪 退出登录", use_container_width=True):
+            logout()
+
         st.markdown("""
         <div style="text-align: center; padding: 0.5rem;">
             <span style="font-size: 1.5rem;">🥔 🍠 🥔</span>
-            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.6 工具箱版</p>
+            <p style="color: #8B4513; font-size: 0.85rem; margin: 0.3rem 0;">v2.7 登录版</p>
         </div>
         """, unsafe_allow_html=True)
     

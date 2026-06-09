@@ -16,6 +16,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import ipaddress
+import re
 from io import BytesIO, StringIO
 import time
 import os
@@ -470,61 +471,127 @@ def excel_to_bytes_multi(dfs: list, base_filename: str = "data") -> bytes:
 # ============================================
 # IP处理工具函数
 # ============================================
-def parse_ip_range(ip_str: str) -> tuple[list, str]:
-    """解析IP段，返回 (IP列表, 错误信息)
-    
+def parse_single_ip_segment(segment: str) -> tuple[list, str]:
+    """解析单个IP段（不包含分隔符的单个片段）
+
     支持格式：
     - 单个IP：192.168.1.1
     - 范围格式：192.168.1.1-192.168.1.10
     - CIDR格式：192.168.1.0/24
-    
+
     Args:
-        ip_str: IP字符串
-    
+        segment: IP段字符串
+
     Returns:
         (IP列表, 错误信息) - 成功时错误信息为None
     """
-    if pd.isna(ip_str) or not str(ip_str).strip():
-        return [], "空值"
-    
-    ip_str = str(ip_str).strip()
-    
-    if not ip_str:
-        return [], "空值"
-    
+    segment = segment.strip()
+    if not segment:
+        return [], None
+
     try:
         # CIDR格式
-        if '/' in ip_str:
-            network = ipaddress.ip_network(ip_str, strict=False)
+        if '/' in segment:
+            network = ipaddress.ip_network(segment, strict=False)
             return [str(ip) for ip in network.hosts()], None
-        
+
         # 范围格式
-        if '-' in ip_str:
-            parts = ip_str.split('-')
+        if '-' in segment:
+            parts = segment.split('-')
             if len(parts) != 2:
-                return [], "范围格式错误（应使用-连接）"
-            
+                return [], f"范围格式错误: {segment}"
+
             start_ip = parts[0].strip()
             end_ip = parts[1].strip()
-            
+
             start = int(ipaddress.IPv4Address(start_ip))
             end = int(ipaddress.IPv4Address(end_ip))
-            
+
             if start > end:
-                return [], "起始IP大于结束IP"
-            
+                return [], f"起始IP大于结束IP: {segment}"
+
             return [str(ipaddress.IPv4Address(ip)) for ip in range(start, end + 1)], None
-        
+
         # 单个IP
-        ipaddress.IPv4Address(ip_str)
-        return [ip_str], None
-    
+        ipaddress.IPv4Address(segment)
+        return [segment], None
+
     except ipaddress.AddressValueError as e:
-        return [], f"IP格式无效: {str(e)}"
+        return [], f"IP格式无效: {segment}"
     except ValueError as e:
-        return [], f"解析错误: {str(e)}"
+        return [], f"解析错误: {segment}"
     except Exception as e:
-        return [], f"未知错误: {str(e)}"
+        return [], f"未知错误: {segment}"
+
+
+def parse_ip_range(ip_str: str, separators: str = ",;；，\t\n") -> tuple[list, dict]:
+    """解析IP段（支持混合格式），返回 (IP列表, 统计信息)
+
+    支持格式（可混合使用）：
+    - 单个IP：192.168.1.1
+    - 范围格式：192.168.1.1-192.168.1.10
+    - CIDR格式：192.168.1.0/24
+    - 混合格式：192.168.1.1,192.168.1.5-192.168.1.10,192.168.2.0/24
+
+    Args:
+        ip_str: IP字符串
+        separators: 分隔符集合，默认支持逗号、分号、制表符、换行等
+
+    Returns:
+        (IP列表, 统计信息字典)
+        统计信息包含：
+        - total_segments: 总片段数
+        - success_segments: 成功解析的片段数
+        - failed_segments: 失败片段数
+        - failed_items: 失败的片段列表
+        - errors: 错误信息列表
+    """
+    stats = {
+        "total_segments": 0,
+        "success_segments": 0,
+        "failed_segments": 0,
+        "failed_items": [],
+        "errors": []
+    }
+
+    if pd.isna(ip_str) or not str(ip_str).strip():
+        stats["errors"].append("空值")
+        return [], stats
+
+    ip_str = str(ip_str).strip()
+
+    if not ip_str:
+        stats["errors"].append("空值")
+        return [], stats
+
+    # 构建分隔符正则（将所有分隔符统一替换为逗号）
+    separator_pattern = f"[{re.escape(separators)}]+"
+
+    # 分割字符串
+    segments = re.split(separator_pattern, ip_str)
+
+    # 过滤空片段
+    segments = [s.strip() for s in segments if s.strip()]
+
+    stats["total_segments"] = len(segments)
+
+    all_ips = []
+
+    for segment in segments:
+        ip_list, error = parse_single_ip_segment(segment)
+
+        if error:
+            stats["failed_segments"] += 1
+            stats["failed_items"].append(segment)
+            stats["errors"].append(error)
+        else:
+            stats["success_segments"] += 1
+            all_ips.extend(ip_list)
+
+    # 去重
+    all_ips = list(dict.fromkeys(all_ips))  # 保持顺序去重
+
+    return all_ips, stats
 
 
 def aggregate_ips_continuous(ip_list: list) -> list:
@@ -3798,6 +3865,25 @@ def show_ip_tool():
             </div>
         </div>
     </div>
+
+    <div class="potato-card" style="margin-bottom: 1rem;">
+        <div class="potato-card-header">✨ 混合格式支持（NEW）</div>
+        <div style="background: #E8F4FF; padding: 1rem; border-radius: 10px; margin-top: 0.5rem;">
+            <div style="color: #1565C0; font-weight: 600; margin-bottom: 0.5rem;">
+                🎉 现在支持多种格式混合使用！
+            </div>
+            <div style="color: #0D47A1; font-size: 0.9rem; line-height: 1.8;">
+                <p><b>支持格式：</b></p>
+                <ul style="padding-left: 1.5rem; margin: 0.3rem 0;">
+                    <li>单个IP：<code>192.168.1.1</code></li>
+                    <li>IP范围：<code>192.168.1.1-192.168.1.10</code></li>
+                    <li>CIDR：<code>192.168.1.0/24</code></li>
+                    <li><b>混合格式：</b><code>192.168.1.1,192.168.1.5-192.168.1.10,192.168.2.0/24</code></li>
+                </ul>
+                <p><b>支持分隔符：</b>逗号(,)、分号(;)、中文逗号(，)、制表符、换行</p>
+            </div>
+        </div>
+    </div>
     """, unsafe_allow_html=True)
     
     # 初始化session state
@@ -3843,6 +3929,7 @@ def show_ip_tool():
                 <li>单个IP：192.168.1.1</li>
                 <li>范围：192.168.1.1-192.168.1.10</li>
                 <li>CIDR：192.168.1.0/24</li>
+                <li><b>混合：</b>192.168.1.1,192.168.1.5-192.168.1.10,192.168.2.0/24</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -4145,17 +4232,19 @@ def show_ip_tool():
                             # 收集该单位的所有IP
                             unit_ips = []
                             unit_errors = []
-                            
+
                             for _, row in group.iterrows():
                                 ip_str = row[ip_col]
-                                ip_list, error = parse_ip_range(ip_str)
-                                
-                                if error:
-                                    if error not in error_stats:
-                                        error_stats[error] = 0
-                                    error_stats[error] += 1
-                                else:
-                                    unit_ips.extend(ip_list)
+                                ip_list, stats = parse_ip_range(ip_str)
+
+                                # 统计错误信息
+                                if stats["failed_segments"] > 0:
+                                    for err in stats["errors"]:
+                                        if err not in error_stats:
+                                            error_stats[err] = 0
+                                        error_stats[err] += 1
+
+                                unit_ips.extend(ip_list)
                             
                             # 去重并统计
                             unit_ips = list(set(unit_ips))
